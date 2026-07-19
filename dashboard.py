@@ -875,6 +875,13 @@ def api_session_screenshot_thumb(sid, filename):
         from PIL import Image as PILImage
         img = PILImage.open(src)
         img.thumbnail((400, 400), PILImage.LANCZOS)
+        # JPEG doesn't support alpha — flatten RGBA/P onto white background
+        if img.mode in ("RGBA", "P", "LA"):
+            bg = PILImage.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=82, optimize=True)
         buf.seek(0)
@@ -1131,7 +1138,7 @@ def capture_panel():
 <div id="screenshot-controls">
   <input id="label" class="inp" type="text" placeholder="Step label (optional — Enter = capture)" disabled>
   <button id="btn-shot" disabled onclick="snap()">📸 Capture</button>
-  <button id="btn-voice" onclick="toggleVoiceCapture()" title="Say 'Capture' to snap a screenshot" style="background:#21262d;border:1px solid #30363d;border-radius:5px;color:#8b949e;font-size:11px;cursor:pointer;padding:5px 10px;width:100%">🎤 Voice capture: off</button>
+  <button id="btn-voice" onclick="toggleVoiceCapture()" title="Say 'Capture' to snap a screenshot" style="background:#0d2b1f;border:1px solid #238636;border-radius:5px;color:#3fb950;font-size:11px;cursor:pointer;padding:5px 10px;width:100%">🎤 Voice trigger: tap to activate — say "Capture"</button>
   <div id="hotkey">or press ⌘⇧S from any app</div>
 </div>
 
@@ -1431,7 +1438,8 @@ function toggleVoiceCapture() {
 function startVoiceCapture() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    document.getElementById('feedback').textContent = '✗ Voice capture not supported in this browser (use Chrome/Edge)';
+    document.getElementById('btn-voice').textContent = '🎤 Voice not supported — use Chrome';
+    document.getElementById('btn-voice').style.color = '#f85149';
     return;
   }
   _voiceRecognition = new SR();
@@ -1439,7 +1447,16 @@ function startVoiceCapture() {
   _voiceRecognition.interimResults = true;
   _voiceRecognition.lang           = 'en-US';
 
-  let _lastSnap = 0;   // debounce: prevent double-fire within 1.5s
+  let _lastSnap = 0;
+
+  _voiceRecognition.onstart = () => {
+    _voiceActive = true;
+    const btn = document.getElementById('btn-voice');
+    btn.textContent  = '🎤 Listening… say "Capture"';
+    btn.style.color  = '#3fb950';
+    btn.style.borderColor = '#238636';
+    btn.style.background  = '#0d2b1f';
+  };
 
   _voiceRecognition.onresult = (e) => {
     for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -1449,7 +1466,6 @@ function startVoiceCapture() {
         if (now - _lastSnap > 1500) {
           _lastSnap = now;
           snap();
-          // brief flash on the voice button so user knows it fired
           const btn = document.getElementById('btn-voice');
           btn.style.background = '#1a4731';
           setTimeout(() => { if (_voiceActive) btn.style.background = '#0d2b1f'; }, 400);
@@ -1459,24 +1475,29 @@ function startVoiceCapture() {
   };
 
   _voiceRecognition.onerror = (e) => {
-    if (e.error !== 'no-speech') {
-      document.getElementById('feedback').textContent = '✗ Voice error: ' + e.error;
-      stopVoiceCapture();
+    const btn = document.getElementById('btn-voice');
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      btn.textContent = '🎤 Mic permission denied — check browser settings';
+      btn.style.color = '#f85149';
+      btn.style.background = '#21262d';
+      _voiceActive = false;
+    } else if (e.error === 'audio-capture') {
+      btn.textContent = '🎤 Mic in use by recording — voice unavailable';
+      btn.style.color = '#d29922';
+      btn.style.background = '#21262d';
+      _voiceActive = false;
+    } else if (e.error !== 'no-speech') {
+      btn.textContent = '🎤 Error: ' + e.error + ' — tap to retry';
+      btn.style.color = '#f85149';
+      _voiceActive = false;
     }
   };
 
   _voiceRecognition.onend = () => {
-    // auto-restart if still active (browser stops after silence)
-    if (_voiceActive) _voiceRecognition.start();
+    if (_voiceActive) _voiceRecognition.start();  // auto-restart after silence
   };
 
   _voiceRecognition.start();
-  _voiceActive = true;
-  const btn = document.getElementById('btn-voice');
-  btn.textContent  = '🎤 Voice capture: listening…';
-  btn.style.color  = '#3fb950';
-  btn.style.borderColor = '#238636';
-  btn.style.background  = '#0d2b1f';
 }
 
 function stopVoiceCapture() {
@@ -1484,10 +1505,10 @@ function stopVoiceCapture() {
   if (_voiceRecognition) { try { _voiceRecognition.stop(); } catch(e){} _voiceRecognition = null; }
   const btn = document.getElementById('btn-voice');
   if (!btn) return;
-  btn.textContent   = '🎤 Voice capture: off';
-  btn.style.color   = '#8b949e';
-  btn.style.borderColor = '#30363d';
-  btn.style.background  = '#21262d';
+  btn.textContent   = '🎤 Voice trigger: tap to activate — say "Capture"';
+  btn.style.color   = '#3fb950';
+  btn.style.borderColor = '#238636';
+  btn.style.background  = '#0d2b1f';
 }
 
 // ── Audio device picker ───────────────────────────────────────
@@ -5369,6 +5390,7 @@ document.addEventListener('click', function(e) {
   if (action === 'hide-thumbs')  hideSessThumb(sid);
   if (action === 'ingest-video') ingestVideoSession(sid, (_sessData[sid] || {}).video_path);
   if (action === 'preview-shot') openSessPreview(sid, btn.dataset.filename);
+  if (action === 'annotate-shot') openSessAnnotateDirect(sid, btn.dataset.filename);
 });
 
 async function loadSessionThumbs(sid) {
@@ -5383,12 +5405,18 @@ async function loadSessionThumbs(sid) {
       return;
     }
     wrap.innerHTML =
+      '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
       shots.map(sh =>
-        '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '/thumb"' +
-        ' title="' + sh.filename + '"' +
-        ' data-action="preview-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
-        ' style="height:90px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover">'
+        '<div style="position:relative;display:inline-block">' +
+          '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '/thumb"' +
+          ' title="' + sh.filename + '"' +
+          ' data-action="preview-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
+          ' style="height:90px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover;display:block">' +
+          '<button data-action="annotate-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
+          ' style="position:absolute;bottom:3px;right:3px;background:rgba(0,0,0,.7);border:none;border-radius:3px;color:#fff;font-size:10px;cursor:pointer;padding:2px 5px;line-height:1.4">✏️</button>' +
+        '</div>'
       ).join('') +
+      '</div>' +
       '<button class="btn btn-secondary btn-sm" data-action="hide-thumbs" data-sid="' + sid + '" style="align-self:flex-start;margin-top:2px">▴ Hide</button>';
   } catch(e) {
     wrap.innerHTML = '<span style="color:var(--red);font-size:.8rem">Failed: ' + e + '</span>';
@@ -5419,13 +5447,16 @@ function sessPreviewAnnotate() {
   const filename = img.dataset.filename;
   if (!sid || !filename) return;
   closeModal('modal-ss-preview');
-  // open annotation modal wired to this session screenshot
+  openSessAnnotateDirect(sid, filename);
+}
+
+function openSessAnnotateDirect(sid, filename) {
+  // Open annotation canvas directly from a session screenshot (no preview step needed)
+  const url = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
   _annFilename = filename;
   _annContext  = {type: 'session', sid};
-  _annImgSrc   = img.src;
   _annHistory  = [];
-  const modal  = document.getElementById('modal-annotate');
-  modal.classList.add('open');
+  document.getElementById('modal-annotate').classList.add('open');
   const canvas  = document.getElementById('ann-canvas');
   const overlay = document.getElementById('ann-overlay');
   const annImg  = new Image();
@@ -5440,9 +5471,14 @@ function sessPreviewAnnotate() {
     overlay.width = w; overlay.height = h;
     canvas.style.width  = w + 'px'; canvas.style.height  = h + 'px';
     overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
+    _annImgSrc = url;
     _annCtx().drawImage(annImg, 0, 0, w, h);
   };
-  annImg.src = img.src + '?nocache=' + Date.now();
+  annImg.onerror = () => {
+    document.getElementById('ann-canvas').getContext('2d')
+      .fillText('Image failed to load', 20, 40);
+  };
+  annImg.src = url + '?nocache=' + Date.now();
 }
 
 async function ingestVideoSession(sid, videoPath) {
