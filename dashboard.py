@@ -2648,50 +2648,31 @@ def _render_html() -> str:
     <!-- TAB: Record -->
     <div id="tab-record" style="display:none">
       <div class="card">
-        <div class="card-title"><span class="icon">🖥️</span> Screen Recording</div>
+        <div class="card-title"><span class="icon">📸</span> Capture Session</div>
 
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:.82rem;color:var(--text2);line-height:1.6">
-          <strong style="color:var(--text)">What gets recorded:</strong><br>
-          ✅ &nbsp;Your <strong>screen</strong> (all displays / the active window)<br>
-          ✅ &nbsp;<strong>Cursor</strong> movements and clicks<br>
-          ❌ &nbsp;<strong>No webcam</strong> — your face is never captured<br>
-          🎙️ &nbsp;<strong>Microphone</strong> (optional — toggle below) — useful for narration
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.82rem;color:var(--text2);line-height:1.7">
+          <strong style="color:var(--text)">How it works:</strong><br>
+          1. Click <strong>Open Capture Panel</strong> below — a small floating window opens<br>
+          2. Give your session a name (e.g. "Configure SD-WAN Policy")<br>
+          3. Pick the browser tab to capture, then click <strong>📸 Start Session</strong><br>
+          4. Hit <strong>📸 Capture</strong> (or <kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.7rem">⌘⇧S</kbd>) at each key step<br>
+          5. Use <strong>⏸ Pause</strong> to skip steps you don't want captured<br>
+          6. Click <strong>⏹ End</strong> when done — your session appears in the <strong>Sessions</strong> and <strong>Ingest</strong> tabs
         </div>
 
-        <div class="record-status">
-          <div class="rec-dot" id="rec-dot"></div>
-          <span id="rec-status-text">Not recording</span>
-          <span id="rec-timer" style="margin-left:auto;font-family:monospace;color:var(--text2)">00:00</span>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem 1rem;margin-bottom:1rem;font-size:.8rem;color:var(--text2);line-height:1.6">
+          <strong style="color:var(--text)">What is — and isn't — recorded:</strong><br>
+          ✅ &nbsp;The specific browser tab you pin (only that window)<br>
+          ✅ &nbsp;Your microphone — test it inside the panel before starting<br>
+          ❌ &nbsp;The capture panel itself is never captured<br>
+          ❌ &nbsp;No webcam, no other windows
         </div>
 
-        <div class="form-row" style="margin-bottom:.75rem">
-          <label style="display:flex;align-items:center;gap:.6rem;font-size:.83rem;cursor:pointer;padding:.5rem .75rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;flex:0 0 auto">
-            <input type="checkbox" id="rec-audio" checked style="width:auto;accent-color:var(--accent)">
-            <span>🎙️ Record microphone audio <span style="color:var(--text2)">(for narration — recommended)</span></span>
-          </label>
-        </div>
-
-        <div class="gap-row">
-          <button class="btn btn-rec" id="rec-start-btn" onclick="startRecording()">⏺ Start Recording</button>
-          <button class="btn btn-secondary" id="rec-stop-btn" disabled onclick="stopRecording()">⏹ Stop</button>
-          <button class="btn btn-secondary" id="rec-screenshot-btn" disabled onclick="takeScreenshot()">📸 Screenshot</button>
-          <button class="btn btn-secondary" id="rec-float-btn" onclick="openCapturePanel()" title="Open a small floating panel you can keep on screen while working in another app">⧉ Float Panel</button>
-        </div>
-        <div style="margin-top:.5rem;font-size:.75rem;color:var(--text2)">
-          Click <strong>Screenshot</strong> at each key step — or press <kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.7rem">⌘⇧S</kbd> from any app.
-          Use <strong>Float Panel</strong> to keep the capture button visible while working in another window.
-        </div>
-        <div id="rec-result" style="margin-top:1rem;display:none" class="progress-box"></div>
-      </div>
-
-      <div class="card" id="rec-ingest-card" style="display:none">
-        <div class="card-title"><span class="icon">⚡</span> Ingest This Recording</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Lab title</label>
-            <input type="text" id="rec-ingest-title" placeholder="e.g. OSPF Configuration Lab">
-          </div>
-          <button class="btn btn-primary" onclick="ingestLastRecording()">Ingest & Draft Guide</button>
+        <button class="btn btn-rec" onclick="openCapturePanel()" style="font-size:1rem;padding:.75rem">
+          📸 &nbsp;Open Capture Panel
+        </button>
+        <div style="margin-top:.6rem;font-size:.75rem;color:var(--text2)">
+          The panel floats above your other windows — keep it visible while you work.
         </div>
       </div>
     </div><!-- /tab-record -->
@@ -3080,6 +3061,7 @@ function showMainTab(tab) {
   if (tab === 'guides' && currentGuideId) loadGuide(currentGuideId);
   if (tab === 'ingest') loadSessions();
   if (tab === 'sessions') loadSessionsTab();
+  if (tab === 'record') openCapturePanel();
 }
 
 // ── Editor tab switching ──────────────────────────────────────
