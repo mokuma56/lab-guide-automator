@@ -3,8 +3,8 @@
   "metadata": {
     "title": " (TEDC24) Unlock the Potential of Cisco’s Agentic Ops Framework",
     "subtitle": "",
-    "version": "0.4 Draft",
-    "author": "",
+    "version": "1.0 Draft",
+    "author": "Matt Okuma ",
     "date": "2026-07-18",
     "lab_duration_minutes": 60,
     "difficulty": "intermediate",
@@ -498,7 +498,7 @@
   "topology_image": null,
   "recording_path": null,
   "created_at": "2026-07-18T20:28:58.991971",
-  "updated_at": "2026-07-19T02:16:11.070459",
+  "updated_at": "2026-07-19T15:43:15.778146",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
   "last_published": "2026-07-19T00:32:40.646286"

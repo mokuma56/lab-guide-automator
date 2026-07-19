@@ -37,7 +37,8 @@ settings = Settings()
 
 # ── In-memory state ──────────────────────────────────────────
 _active_sessions: dict[str, RecordingSession] = {}
-_session_window: dict[str, int] = {}   # session_id → pinned CGWindowID (optional)
+_session_window: dict[str, int] = {}    # session_id → pinned CGWindowID (optional)
+_paused_sessions: set[str] = set()      # session_ids currently paused (screenshots blocked)
 _loaded_guides: dict[str, LabGuide] = {}
 _progress_queues: dict[str, queue.Queue] = {}   # job_id → SSE event queue
 
@@ -573,7 +574,16 @@ def api_record_start():
         out_dir = _data_dir() / "sessions" / sid / "recording"
         session = start_recording(sid, out_dir, audio=data.get("audio", True))
         _active_sessions[sid] = session
-        return jsonify({"session_id": sid, "status": "recording"})
+        # Persist meta (name, started_at) alongside the recording folder
+        meta = {
+            "session_id": sid,
+            "name": (data.get("name") or "").strip() or sid,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        meta_path = _data_dir() / "sessions" / sid / "meta.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(meta, indent=2))
+        return jsonify({"session_id": sid, "status": "recording", "name": meta["name"]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -587,6 +597,17 @@ def api_record_stop():
             return jsonify({"error": "No active session"}), 404
         video_path = stop_recording(session)
         del _active_sessions[sid]
+        _paused_sessions.discard(sid)
+        _session_window.pop(sid, None)
+        # Update meta with ended_at + screenshot count
+        meta_path = _data_dir() / "sessions" / sid / "meta.json"
+        try:
+            meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"session_id": sid, "name": sid}
+            meta["ended_at"] = datetime.now().isoformat(timespec="seconds")
+            meta["screenshot_count"] = len(session.screenshots)
+            meta_path.write_text(json.dumps(meta, indent=2))
+        except Exception:
+            pass
         return jsonify({
             "session_id": sid,
             "video_path": str(video_path),
@@ -595,6 +616,24 @@ def api_record_stop():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/record/pause", methods=["POST"])
+def api_record_pause():
+    sid = (request.json or {}).get("session_id", "")
+    if not sid or sid not in _active_sessions:
+        return jsonify({"error": "No active session"}), 404
+    _paused_sessions.add(sid)
+    return jsonify({"session_id": sid, "paused": True})
+
+
+@app.route("/api/record/resume", methods=["POST"])
+def api_record_resume():
+    sid = (request.json or {}).get("session_id", "")
+    if not sid or sid not in _active_sessions:
+        return jsonify({"error": "No active session"}), 404
+    _paused_sessions.discard(sid)
+    return jsonify({"session_id": sid, "paused": False})
 
 
 @app.route("/api/record/screenshot", methods=["POST"])
@@ -609,6 +648,9 @@ def api_screenshot():
             if not running:
                 return jsonify({"error": "No active recording session. Start recording first."}), 404
             session = running[-1]
+        # Block capture when paused
+        if session.session_id in _paused_sessions:
+            return jsonify({"error": "Session is paused. Resume before capturing."}), 409
         wid = _session_window.get(session.session_id)
         path, seq = take_screenshot(session, data.get("label", ""), window_id=wid)
         import shutil as _shutil
@@ -635,7 +677,8 @@ def api_screenshot():
 def api_record_status():
     return jsonify([
         {"session_id": sid, "elapsed_s": round(s.elapsed, 1),
-         "screenshots": len(s.screenshots), "running": s.is_running()}
+         "screenshots": len(s.screenshots), "running": s.is_running(),
+         "paused": sid in _paused_sessions}
         for sid, s in _active_sessions.items()
     ])
 
@@ -644,7 +687,7 @@ def api_record_status():
 def api_list_sessions():
     """List completed capture sessions, newest first.
 
-    Each entry: {session_id, screenshot_count, recorded_at, folder_path, size_mb}
+    Each entry: {session_id, name, screenshot_count, recorded_at, folder_path, size_mb}
     """
     sessions_root = _data_dir() / "sessions"
     if not sessions_root.exists():
@@ -664,16 +707,79 @@ def api_list_sessions():
         )
         if not shots:
             continue
+        # Read name from meta.json if present
+        meta_path = sid_dir / "meta.json"
+        name = sid_dir.name
+        try:
+            if meta_path.exists():
+                name = json.loads(meta_path.read_text()).get("name", sid_dir.name) or sid_dir.name
+        except Exception:
+            pass
         mtime = rec_dir.stat().st_mtime
         size_bytes = sum(f.stat().st_size for f in shots)
         result.append({
             "session_id": sid_dir.name,
+            "name": name,
             "screenshot_count": len(shots),
             "recorded_at": datetime.fromtimestamp(mtime).strftime("%b %d, %Y %H:%M"),
             "folder_path": str(rec_dir),
             "size_mb": round(size_bytes / 1_048_576, 1),
         })
     return jsonify(result)
+
+
+@app.route("/api/sessions/<sid>", methods=["DELETE"])
+def api_delete_session(sid):
+    """Delete a capture session folder from disk."""
+    import shutil as _shutil
+    # Safety: only allow deleting sessions not currently active
+    if sid in _active_sessions:
+        return jsonify({"error": "Cannot delete an active session. End it first."}), 409
+    session_dir = _data_dir() / "sessions" / sid
+    if not session_dir.exists():
+        return jsonify({"error": "Session not found"}), 404
+    try:
+        _shutil.rmtree(session_dir)
+        return jsonify({"deleted": sid})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<sid>/rename", methods=["POST"])
+def api_rename_session(sid):
+    """Rename a session (updates meta.json name field)."""
+    name = ((request.json or {}).get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    meta_path = _data_dir() / "sessions" / sid / "meta.json"
+    try:
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"session_id": sid}
+        meta["name"] = name
+        meta_path.write_text(json.dumps(meta, indent=2))
+        return jsonify({"session_id": sid, "name": name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<sid>/screenshots")
+def api_session_screenshots(sid):
+    """Return list of screenshot filenames for a session."""
+    rec_dir = _data_dir() / "sessions" / sid / "recording"
+    if not rec_dir.exists():
+        return jsonify({"error": "Session not found"}), 404
+    shots = sorted(
+        list(rec_dir.glob("step-*.png")) +
+        list(rec_dir.glob("step-*.jpg")) +
+        list(rec_dir.glob("frame_*.jpg"))
+    )
+    return jsonify([{"filename": f.name, "path": str(f)} for f in shots])
+
+
+@app.route("/api/sessions/<sid>/screenshots/<filename>")
+def api_session_screenshot_file(sid, filename):
+    """Serve a screenshot image from a session folder."""
+    rec_dir = _data_dir() / "sessions" / sid / "recording"
+    return send_from_directory(str(rec_dir), filename)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -717,41 +823,56 @@ def capture_panel():
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>📸 Capture</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    background: #0d1117; color: #e6edf3;
-    font-family: -apple-system, 'Segoe UI', sans-serif;
-    font-size: 12px; user-select: none;
-    display: flex; flex-direction: column;
-    gap: 8px; padding: 12px;
+  html, body {
+    width:320px; min-height:100%;
+    background:#0d1117; color:#e6edf3;
+    font-family:-apple-system,'Segoe UI',sans-serif;
+    font-size:12px; user-select:none;
+    overflow-x:hidden;
   }
-  /* Status bar */
-  #status-row { display:flex; align-items:center; justify-content:space-between; }
-  #status { font-size: 11px; color: #8b949e; }
-  #status.recording { color: #f85149; font-weight: 600; }
-  #timer { font-size: 11px; font-variant-numeric: tabular-nums; color: #58a6ff; }
-  #count { font-size: 11px; color: #8b949e; text-align:center; }
+  body { display:flex; flex-direction:column; gap:8px; padding:12px; }
 
-  /* Record controls */
-  #rec-row { display:flex; gap:6px; }
-  .btn-rec {
-    flex:1; padding: 7px 0;
-    border: none; border-radius: 6px;
-    font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: background .15s;
+  /* ── rows / layout ── */
+  .row { display:flex; gap:6px; align-items:center; }
+  .col { display:flex; flex-direction:column; gap:4px; }
+  .lbl { font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; }
+  hr { border:none; border-top:1px solid #21262d; }
+
+  /* ── status bar ── */
+  #status { font-size:11px; color:#8b949e; }
+  #status.live  { color:#f85149; font-weight:600; }
+  #status.paused { color:#d29922; font-weight:600; }
+  #timer { font-size:11px; font-variant-numeric:tabular-nums; color:#58a6ff; }
+  #count { font-size:11px; color:#8b949e; text-align:center; }
+
+  /* ── buttons ── */
+  .btn {
+    flex:1; padding:7px 0; border:none; border-radius:6px;
+    font-size:12px; font-weight:600; cursor:pointer; transition:background .15s;
   }
-  .btn-rec:disabled { opacity:.35; cursor:not-allowed; }
-  #btn-start { background:#b91c1c; color:#fff; }
-  #btn-start:hover:not(:disabled) { background:#dc2626; }
-  #btn-stop  { background:#21262d; color:#e6edf3; border:1px solid #30363d; }
-  #btn-stop:hover:not(:disabled)  { background:#30363d; }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+  #btn-start  { background:#b91c1c; color:#fff; }
+  #btn-start:hover:not(:disabled)  { background:#dc2626; }
+  #btn-pause  { background:#854d0e; color:#fef3c7; }
+  #btn-pause:hover:not(:disabled)  { background:#a16207; }
+  #btn-resume { background:#1e4d2b; color:#bbf7d0; }
+  #btn-resume:hover:not(:disabled) { background:#166534; }
+  #btn-stop   { background:#21262d; color:#e6edf3; border:1px solid #30363d; }
+  #btn-stop:hover:not(:disabled)   { background:#30363d; }
 
-  /* Window picker */
-  #win-section { display:flex; flex-direction:column; gap:4px; }
-  #win-section label { font-size: 10px; color: #8b949e; text-transform:uppercase; letter-spacing:.5px; }
-  #win-row { display:flex; gap:4px; }
+  /* ── name / label inputs ── */
+  .inp {
+    background:#161b22; border:1px solid #30363d; border-radius:5px;
+    color:#e6edf3; padding:5px 7px; font-size:11px; outline:none; width:100%;
+  }
+  .inp:focus  { border-color:#58a6ff; }
+  .inp:disabled { opacity:.4; }
+
+  /* ── window picker ── */
   #win-select {
     flex:1; background:#161b22; border:1px solid #30363d;
     border-radius:5px; color:#e6edf3; padding:4px 6px;
@@ -765,117 +886,204 @@ def capture_panel():
   #btn-refresh:hover { color:#e6edf3; }
   #pin-status { font-size:10px; color:#3fb950; min-height:13px; padding-left:2px; }
 
-  /* Label + capture */
-  #label {
-    background:#161b22; border:1px solid #30363d; border-radius:5px;
-    color:#e6edf3; padding:5px 7px; font-size:11px; outline:none; width:100%;
-  }
-  #label:focus { border-color:#58a6ff; }
-  #label:disabled { opacity:.4; }
+  /* ── capture button ── */
   #btn-shot {
     width:100%; padding:11px;
     background:#238636; border:none; border-radius:6px;
     color:#fff; font-size:15px; font-weight:600; cursor:pointer;
-    transition: background .15s;
+    transition:background .15s;
   }
   #btn-shot:hover:not(:disabled) { background:#2ea043; }
   #btn-shot:disabled { background:#21262d; color:#484f58; cursor:not-allowed; }
   #btn-shot:active:not(:disabled) { transform:scale(.97); }
-  #hotkey { font-size:10px; color:#484f58; text-align:center; }
+
+  /* ── audio meter ── */
+  #audio-section { display:flex; flex-direction:column; gap:4px; }
+  #meter-bar-wrap {
+    height:8px; background:#21262d; border-radius:4px; overflow:hidden; position:relative;
+  }
+  #meter-bar {
+    height:100%; width:0%; background:#238636; border-radius:4px;
+    transition:width .07s linear;
+  }
+  #audio-status { font-size:10px; color:#8b949e; }
+  #btn-mic-test {
+    background:#21262d; border:1px solid #30363d; border-radius:5px;
+    color:#8b949e; font-size:10px; cursor:pointer; padding:3px 8px; white-space:nowrap;
+  }
+  #btn-mic-test.active { color:#3fb950; border-color:#238636; }
+  #btn-mic-test:hover { color:#e6edf3; }
+
+  /* ── misc ── */
+  #hotkey  { font-size:10px; color:#484f58; text-align:center; }
   #feedback { font-size:11px; color:#f85149; text-align:center; min-height:14px; }
   #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .08s; }
-  hr { border:none; border-top:1px solid #21262d; }
 </style>
 </head>
 <body>
 <div id="flash"></div>
 
-<!-- Status -->
-<div id="status-row">
+<!-- Status row -->
+<div class="row">
   <span id="status">No session</span>
+  <span style="flex:1"></span>
   <span id="timer"></span>
 </div>
 <div id="count"></div>
 
 <hr>
 
-<!-- Start / Stop recording -->
-<div id="rec-row">
-  <button class="btn-rec" id="btn-start" onclick="startRec()">📸 Start Capture Session</button>
-  <button class="btn-rec" id="btn-stop"  onclick="stopRec()" disabled>⏹ End Session</button>
+<!-- Session name (only shown when not running) -->
+<div id="name-section" class="col">
+  <span class="lbl">Session name</span>
+  <input id="session-name" class="inp" type="text" placeholder="e.g. Configure SD-WAN Policy" maxlength="80">
+</div>
+
+<!-- Start / Pause / Resume / Stop -->
+<div class="row" id="ctrl-row-1">
+  <button class="btn" id="btn-start" onclick="startRec()">📸 Start Session</button>
+</div>
+<div class="row" id="ctrl-row-2" style="display:none">
+  <button class="btn" id="btn-pause"  onclick="pauseRec()">⏸ Pause</button>
+  <button class="btn" id="btn-resume" onclick="resumeRec()" style="display:none">▶ Resume</button>
+  <button class="btn" id="btn-stop"   onclick="stopRec()">⏹ End</button>
+</div>
+
+<hr>
+
+<!-- Audio meter + mic test -->
+<div id="audio-section">
+  <div class="row">
+    <span class="lbl" style="flex:1">Microphone</span>
+    <button id="btn-mic-test" onclick="toggleMicTest()">🎙 Test mic</button>
+  </div>
+  <div id="meter-bar-wrap"><div id="meter-bar"></div></div>
+  <div id="audio-status">Click "Test mic" to check your microphone level</div>
 </div>
 
 <hr>
 
 <!-- Window picker -->
-<div id="win-section">
-  <label>Capture window</label>
-  <div id="win-row">
+<div class="col">
+  <span class="lbl">Capture window</span>
+  <div class="row">
     <select id="win-select" disabled>
       <option value="">-- Full screen --</option>
     </select>
-    <button id="btn-refresh" onclick="loadWindows()" title="Refresh">↺</button>
+    <button id="btn-refresh" onclick="loadWindows()" title="Refresh windows">↺</button>
   </div>
   <div id="pin-status"></div>
 </div>
 
 <!-- Label + capture -->
-<input id="label" type="text" placeholder="Label (optional, Enter = capture)" disabled>
+<input id="label" class="inp" type="text" placeholder="Step label (optional — Enter = capture)" disabled>
 <button id="btn-shot" disabled onclick="snap()">📸 Capture</button>
 <div id="hotkey">or press ⌘⇧S from any app</div>
 <div id="feedback"></div>
 
 <script>
 let _sid = null;
+let _paused = false;
 let _running = false;
 let _timer = null;
 let _elapsed = 0;
+
+// ── mic test state ──
+let _micStream = null;
+let _micCtx = null;
+let _micAnalyser = null;
+let _micActive = false;
+let _micRaf = null;
 
 function fmt(s) {
   const m = Math.floor(s/60), sec = Math.floor(s%60);
   return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
 }
 
-function setRunning(yes, sid) {
+function setRunning(yes, sid, paused) {
   _running = yes;
+  _paused = !!paused;
   if (sid) _sid = sid;
-  document.getElementById('btn-start').disabled = yes;
-  document.getElementById('btn-stop').disabled  = !yes;
-  document.getElementById('btn-shot').disabled  = !yes;
-  document.getElementById('label').disabled     = !yes;
+
+  // name field: editable only when idle
+  document.getElementById('session-name').disabled = yes;
+  document.getElementById('name-section').style.display = yes ? 'none' : 'flex';
+
+  document.getElementById('ctrl-row-1').style.display = yes ? 'none' : 'flex';
+  document.getElementById('ctrl-row-2').style.display = yes ? 'flex' : 'none';
+
+  const btnPause  = document.getElementById('btn-pause');
+  const btnResume = document.getElementById('btn-resume');
+  if (yes) {
+    btnPause.style.display  = _paused ? 'none' : 'flex';
+    btnResume.style.display = _paused ? 'flex' : 'none';
+  }
+
+  document.getElementById('btn-shot').disabled = !yes || _paused;
+  document.getElementById('label').disabled    = !yes || _paused;
   document.getElementById('win-select').disabled = !yes;
+
   const st = document.getElementById('status');
-  st.className = yes ? 'recording' : '';
-  st.textContent = yes ? '● Capturing' : 'No session';
+  if (!yes)       { st.className = '';       st.textContent = 'No session'; }
+  else if (_paused){ st.className = 'paused'; st.textContent = '⏸ Paused'; }
+  else             { st.className = 'live';   st.textContent = '● Capturing'; }
+
   if (!yes) {
     document.getElementById('timer').textContent = '';
     document.getElementById('count').textContent = '';
-    clearInterval(_timer);
-    _timer = null;
-    _elapsed = 0;
+    clearInterval(_timer); _timer = null; _elapsed = 0;
   }
 }
 
 async function startRec() {
+  const name = document.getElementById('session-name').value.trim();
   document.getElementById('feedback').textContent = '';
   try {
     const res = await fetch('/api/record/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({audio: false})
+      body: JSON.stringify({audio: true, name: name || 'Untitled Session'})
     });
     const d = await res.json();
     if (d.error) { document.getElementById('feedback').textContent = '✗ ' + d.error; return; }
-    setRunning(true, d.session_id);
+    setRunning(true, d.session_id, false);
     _elapsed = 0;
-    _timer = setInterval(() => {
-      _elapsed++;
-      document.getElementById('timer').textContent = fmt(_elapsed);
-    }, 1000);
-    // Re-pin window if one was already selected
+    _timer = setInterval(() => { _elapsed++; document.getElementById('timer').textContent = fmt(_elapsed); }, 1000);
     await pinWindow();
   } catch(e) {
     document.getElementById('feedback').textContent = '✗ ' + e;
   }
+}
+
+async function pauseRec() {
+  if (!_sid) return;
+  await fetch('/api/record/pause', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: _sid})
+  });
+  _paused = true;
+  document.getElementById('btn-pause').style.display  = 'none';
+  document.getElementById('btn-resume').style.display = 'flex';
+  document.getElementById('btn-shot').disabled = true;
+  document.getElementById('label').disabled    = true;
+  const st = document.getElementById('status');
+  st.className = 'paused'; st.textContent = '⏸ Paused';
+  clearInterval(_timer);
+}
+
+async function resumeRec() {
+  if (!_sid) return;
+  await fetch('/api/record/resume', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: _sid})
+  });
+  _paused = false;
+  document.getElementById('btn-pause').style.display  = 'flex';
+  document.getElementById('btn-resume').style.display = 'none';
+  document.getElementById('btn-shot').disabled = false;
+  document.getElementById('label').disabled    = false;
+  const st = document.getElementById('status');
+  st.className = 'live'; st.textContent = '● Capturing';
+  _timer = setInterval(() => { _elapsed++; document.getElementById('timer').textContent = fmt(_elapsed); }, 1000);
 }
 
 async function stopRec() {
@@ -886,10 +1094,11 @@ async function stopRec() {
       body: JSON.stringify({session_id: _sid})
     });
   } catch(e) {}
-  setRunning(false, null);
+  setRunning(false, null, false);
   _sid = null;
 }
 
+// ── Window picker ────────────────────────────────────────────
 async function loadWindows() {
   try {
     const res = await fetch('/api/windows');
@@ -900,7 +1109,7 @@ async function loadWindows() {
     wins.forEach(w => {
       const opt = document.createElement('option');
       opt.value = String(w.id);
-      const short = w.title.length > 48 ? w.title.slice(0,46) + '\u2026' : w.title;
+      const short = w.title.length > 44 ? w.title.slice(0,42) + '\u2026' : w.title;
       opt.textContent = w.app + ' \u2014 ' + short;
       opt.title = w.title;
       if (String(w.id) === prev) opt.selected = true;
@@ -918,19 +1127,14 @@ async function pinWindow() {
       body: JSON.stringify({window_id: wid, session_id: _sid || ''})
     });
     const pinEl = document.getElementById('pin-status');
-    if (wid) {
-      const txt = sel.options[sel.selectedIndex].textContent;
-      pinEl.textContent = '\u2713 ' + txt.slice(0, 42);
-    } else {
-      pinEl.textContent = '';
-    }
+    pinEl.textContent = wid ? '\u2713 ' + sel.options[sel.selectedIndex].textContent.slice(0,42) : '';
   } catch(e) {}
 }
-
 document.getElementById('win-select').addEventListener('change', pinWindow);
 
+// ── Capture ──────────────────────────────────────────────────
 async function snap() {
-  if (!_running) return;
+  if (!_running || _paused) return;
   const label = document.getElementById('label').value.trim();
   document.getElementById('label').value = '';
   const fl = document.getElementById('flash');
@@ -946,31 +1150,85 @@ async function snap() {
     if (d.error) {
       document.getElementById('feedback').textContent = '\u2717 ' + d.error;
     } else {
-      document.getElementById('count').textContent =
-        d.seq + ' screenshot' + (d.seq !== 1 ? 's' : '');
+      document.getElementById('count').textContent = d.seq + ' screenshot' + (d.seq !== 1 ? 's' : '');
     }
   } catch(e) {
     document.getElementById('feedback').textContent = '\u2717 Request failed';
   }
 }
+document.getElementById('label').addEventListener('keydown', e => { if (e.key === 'Enter') snap(); });
 
-document.getElementById('label').addEventListener('keydown', e => {
-  if (e.key === 'Enter') snap();
-});
+// ── Mic test ─────────────────────────────────────────────────
+async function toggleMicTest() {
+  if (_micActive) {
+    stopMicTest();
+  } else {
+    await startMicTest();
+  }
+}
 
-// On load: check if there's already an active session (started from dashboard)
+async function startMicTest() {
+  const btn = document.getElementById('btn-mic-test');
+  const statusEl = document.getElementById('audio-status');
+  try {
+    _micStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+    _micCtx = new AudioContext();
+    _micAnalyser = _micCtx.createAnalyser();
+    _micAnalyser.fftSize = 256;
+    _micCtx.createMediaStreamSource(_micStream).connect(_micAnalyser);
+    _micActive = true;
+    btn.classList.add('active');
+    btn.textContent = '🎙 Stop test';
+    statusEl.textContent = 'Listening\u2026 speak to see levels';
+    drawMeter();
+  } catch(e) {
+    statusEl.textContent = '\u2717 Mic access denied: ' + e.message;
+  }
+}
+
+function stopMicTest() {
+  _micActive = false;
+  if (_micRaf) { cancelAnimationFrame(_micRaf); _micRaf = null; }
+  if (_micStream) { _micStream.getTracks().forEach(t => t.stop()); _micStream = null; }
+  if (_micCtx) { _micCtx.close(); _micCtx = null; }
+  document.getElementById('meter-bar').style.width = '0%';
+  document.getElementById('meter-bar').style.background = '#238636';
+  const btn = document.getElementById('btn-mic-test');
+  btn.classList.remove('active');
+  btn.textContent = '\uD83C\uDF99 Test mic';
+  document.getElementById('audio-status').textContent = 'Mic test stopped';
+}
+
+function drawMeter() {
+  if (!_micActive || !_micAnalyser) return;
+  const data = new Uint8Array(_micAnalyser.frequencyBinCount);
+  _micAnalyser.getByteFrequencyData(data);
+  const avg = data.reduce((s, v) => s + v, 0) / data.length;
+  const pct = Math.min(100, avg * 2.5);
+  const bar = document.getElementById('meter-bar');
+  bar.style.width = pct + '%';
+  // colour: green → yellow → red
+  bar.style.background = pct < 50 ? '#238636' : pct < 80 ? '#d29922' : '#f85149';
+  const statusEl = document.getElementById('audio-status');
+  if (pct < 5)       statusEl.textContent = 'Silence — speak to test';
+  else if (pct < 40) statusEl.textContent = 'Good level \u2713';
+  else if (pct < 75) statusEl.textContent = 'Loud — consider moving back';
+  else               statusEl.textContent = '\u26a0 Clipping — too loud!';
+  _micRaf = requestAnimationFrame(drawMeter);
+}
+
+// ── Sync existing session on load ────────────────────────────
 async function syncExistingSession() {
   try {
     const res = await fetch('/api/record/status');
     const list = await res.json();
     const active = list.find(s => s.running);
     if (active) {
-      setRunning(true, active.session_id);
+      setRunning(true, active.session_id, active.paused);
       _elapsed = Math.round(active.elapsed_s);
-      _timer = setInterval(() => {
-        _elapsed++;
-        document.getElementById('timer').textContent = fmt(_elapsed);
-      }, 1000);
+      if (!active.paused) {
+        _timer = setInterval(() => { _elapsed++; document.getElementById('timer').textContent = fmt(_elapsed); }, 1000);
+      }
       document.getElementById('count').textContent =
         active.screenshots + ' screenshot' + (active.screenshots !== 1 ? 's' : '');
     }
@@ -2148,6 +2406,7 @@ def _render_html() -> str:
     <button class="nav-tab active" onclick="showMainTab('guides')">Guides</button>
     <button class="nav-tab" onclick="showMainTab('record')">Record</button>
     <button class="nav-tab" onclick="showMainTab('ingest')">Ingest</button>
+    <button class="nav-tab" onclick="showMainTab('sessions')">Sessions</button>
   </div>
   <div class="topnav-right">
     <span class="pill green" id="ai-status">✓ Copilot AI</span>
@@ -2533,6 +2792,19 @@ def _render_html() -> str:
       </div>
     </div><!-- /tab-ingest -->
 
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- Sessions tab                                            -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="tab-sessions" style="display:none">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <h2 style="font-size:1.1rem;font-weight:700;margin:0">Capture Sessions</h2>
+        <button class="btn btn-secondary btn-sm" onclick="loadSessionsTab()">↺ Refresh</button>
+      </div>
+      <div id="sessions-grid" style="display:grid;gap:.75rem">
+        <div style="color:var(--text2)">Loading…</div>
+      </div>
+    </div><!-- /tab-sessions -->
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -2799,14 +3071,15 @@ let _repoSelected = null;      // selected filename in repo
 // ── Main tab switching ────────────────────────────────────────
 function showMainTab(tab) {
   document.querySelectorAll('.nav-tab').forEach((t,i) => {
-    const tabs = ['guides','record','ingest'];
+    const tabs = ['guides','record','ingest','sessions'];
     t.classList.toggle('active', tabs[i] === tab);
   });
-  ['guides','record','ingest'].forEach(t => {
+  ['guides','record','ingest','sessions'].forEach(t => {
     document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
   });
   if (tab === 'guides' && currentGuideId) loadGuide(currentGuideId);
   if (tab === 'ingest') loadSessions();
+  if (tab === 'sessions') loadSessionsTab();
 }
 
 // ── Editor tab switching ──────────────────────────────────────
@@ -4409,7 +4682,7 @@ async function _doTakeScreenshot() {
 
 function openCapturePanel() {
   window.open('/capture', 'capture-panel',
-    'width=240,height=200,resizable=no,menubar=no,toolbar=no,location=no,status=no');
+    'popup=yes,width=340,height=560,resizable=yes,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes');
 }
 
 function _showScreenshotToast(seq, elapsed) {
@@ -4654,6 +4927,107 @@ async function startIngestJob(url, body) {
       es.close();
     }
   };
+}
+
+// ── Sessions tab ─────────────────────────────────────────────
+async function loadSessionsTab() {
+  const grid = document.getElementById('sessions-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="color:var(--text2)">Loading…</div>';
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    if (!sessions.length) {
+      grid.innerHTML = '<div class="card" style="color:var(--text2)">No sessions yet. Use the float panel to capture screenshots.</div>';
+      return;
+    }
+    grid.innerHTML = sessions.map(s => `
+      <div class="card" id="sess-card-${s.session_id}" style="padding:.75rem">
+        <div style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.5rem">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                 id="sess-name-${s.session_id}">${s.name}</div>
+            <div style="font-size:.75rem;color:var(--text2);margin-top:.15rem">
+              ${s.session_id} &nbsp;·&nbsp; 📸 ${s.screenshot_count} screenshot${s.screenshot_count !== 1 ? 's' : ''}
+              &nbsp;·&nbsp; ${s.size_mb} MB &nbsp;·&nbsp; ${s.recorded_at}
+            </div>
+          </div>
+          <div style="display:flex;gap:.35rem;flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" onclick="renameSession('${s.session_id}')" title="Rename">✏️</button>
+            <button class="btn btn-secondary btn-sm" onclick="deleteSession('${s.session_id}')" title="Delete" style="color:#f85149">🗑</button>
+          </div>
+        </div>
+        <div id="sess-thumbs-${s.session_id}" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs('${s.session_id}','${s.folder_path.replace(/'/g,"\\'")}')">
+            Show screenshots ▸
+          </button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    grid.innerHTML = '<div style="color:var(--red)">Failed to load sessions: ' + e + '</div>';
+  }
+}
+
+async function loadSessionThumbs(sid, folderPath) {
+  const wrap = document.getElementById('sess-thumbs-' + sid);
+  if (!wrap) return;
+  wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">Loading…</span>';
+  try {
+    const res = await fetch('/api/sessions/' + sid + '/screenshots');
+    const shots = await res.json();
+    if (!shots.length) { wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">No screenshots</span>'; return; }
+    wrap.innerHTML = shots.map(sh =>
+      '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '"' +
+      ' title="' + sh.filename + '"' +
+      ' style="height:72px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover"' +
+      ' onclick="openSessPreview(\'' + sid + '\',\'' + sh.filename.replace(/'/g,"\\'") + '\')">'
+    ).join('') +
+    '<button class="btn btn-secondary btn-sm" style="align-self:flex-start;margin-top:2px" onclick="hideSessThumb(\'' + sid + '\')">▴ Hide</button>';
+  } catch(e) {
+    wrap.innerHTML = '<span style="color:var(--red);font-size:.8rem">Failed: ' + e + '</span>';
+  }
+}
+
+function hideSessThumb(sid) {
+  const wrap = document.getElementById('sess-thumbs-' + sid);
+  const folderPath = '';  // not needed for re-showing without path
+  if (wrap) wrap.innerHTML =
+    '<button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs(\'' + sid + '\',\'\')">Show screenshots ▸</button>';
+}
+
+function openSessPreview(sid, filename) {
+  const img = document.getElementById('ss-preview-img');
+  const cap = document.getElementById('ss-preview-cap');
+  if (img) img.src = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
+  if (cap) cap.textContent = filename;
+  document.getElementById('modal-ss-preview').classList.add('open');
+}
+
+async function renameSession(sid) {
+  const cur = document.getElementById('sess-name-' + sid);
+  const newName = prompt('Rename session:', cur ? cur.textContent.trim() : sid);
+  if (!newName || !newName.trim()) return;
+  try {
+    await fetch('/api/sessions/' + sid + '/rename', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: newName.trim()})
+    });
+    if (cur) cur.textContent = newName.trim();
+    // also refresh ingest session list in case it's open
+    loadSessions();
+  } catch(e) { alert('Rename failed: ' + e); }
+}
+
+async function deleteSession(sid) {
+  if (!confirm('Delete this capture session and all its screenshots? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/sessions/' + sid, {method:'DELETE'});
+    const d = await res.json();
+    if (d.error) { alert('Delete failed: ' + d.error); return; }
+    const card = document.getElementById('sess-card-' + sid);
+    if (card) card.remove();
+    loadSessions(); // refresh ingest picker
+  } catch(e) { alert('Delete failed: ' + e); }
 }
 
 // ── AI Section (generate one section and append to open guide) ─
