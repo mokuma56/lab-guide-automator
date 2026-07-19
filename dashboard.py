@@ -928,6 +928,12 @@ def capture_panel():
   }
   #btn-mic-test.active { color:#3fb950; border-color:#238636; }
   #btn-mic-test:hover  { color:#e6edf3; }
+  /* gain slider */
+  #gain-row { display:none; align-items:center; gap:6px; margin-top:2px; }
+  #gain-slider {
+    flex:1; accent-color:#58a6ff; cursor:pointer; height:4px;
+  }
+  #gain-label { font-size:10px; color:#58a6ff; min-width:28px; text-align:right; }
 
   /* video-mode note */
   .video-note {
@@ -1003,6 +1009,11 @@ def capture_panel():
     <button id="btn-mic-test" onclick="toggleMicTest()">🎙 Test mic</button>
   </div>
   <div id="meter-bar-wrap"><div id="meter-bar"></div></div>
+  <div id="gain-row">
+    <span class="lbl" style="white-space:nowrap">Input gain</span>
+    <input id="gain-slider" type="range" min="0.1" max="2" step="0.05" value="1" oninput="updateGain(this.value)">
+    <span id="gain-label">1.0×</span>
+  </div>
   <div id="audio-status">Click "Test mic" to check your microphone level</div>
 </div>
 
@@ -1038,7 +1049,7 @@ let _timer  = null;
 let _elapsed = 0;
 
 // mic test state
-let _micStream = null, _micCtx = null, _micAnalyser = null;
+let _micStream = null, _micCtx = null, _micAnalyser = null, _micGain = null;
 let _micActive = false, _micRaf = null;
 
 function fmt(s) {
@@ -1230,11 +1241,19 @@ async function startMicTest() {
     _micCtx = new AudioContext();
     _micAnalyser = _micCtx.createAnalyser();
     _micAnalyser.fftSize = 256;
-    _micCtx.createMediaStreamSource(_micStream).connect(_micAnalyser);
+    _micGain = _micCtx.createGain();
+    const src = _micCtx.createMediaStreamSource(_micStream);
+    // chain: mic → gain → analyser
+    src.connect(_micGain);
+    _micGain.connect(_micAnalyser);
+    // restore last-used gain value from slider
+    const slider = document.getElementById('gain-slider');
+    _micGain.gain.value = parseFloat(slider.value);
     _micActive = true;
     document.getElementById('btn-mic-test').classList.add('active');
     document.getElementById('btn-mic-test').textContent = '\uD83C\uDF99 Stop test';
     document.getElementById('audio-status').textContent = 'Listening\u2026 speak to see levels';
+    document.getElementById('gain-row').style.display = 'flex';
     drawMeter();
   } catch(e) {
     document.getElementById('audio-status').textContent = '\u2717 Mic access denied: ' + e.message;
@@ -1246,11 +1265,19 @@ function stopMicTest() {
   if (_micRaf) { cancelAnimationFrame(_micRaf); _micRaf = null; }
   if (_micStream) { _micStream.getTracks().forEach(t => t.stop()); _micStream = null; }
   if (_micCtx) { _micCtx.close(); _micCtx = null; }
+  _micGain = null;
   document.getElementById('meter-bar').style.width = '0%';
   document.getElementById('meter-bar').style.background = '#238636';
   document.getElementById('btn-mic-test').classList.remove('active');
   document.getElementById('btn-mic-test').textContent = '\uD83C\uDF99 Test mic';
   document.getElementById('audio-status').textContent = 'Mic test stopped';
+  document.getElementById('gain-row').style.display = 'none';
+}
+
+function updateGain(val) {
+  const v = parseFloat(val);
+  if (_micGain) _micGain.gain.value = v;
+  document.getElementById('gain-label').textContent = v.toFixed(1) + '\u00d7';
 }
 
 function drawMeter() {
