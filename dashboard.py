@@ -812,6 +812,24 @@ def api_session_screenshot_file(sid, filename):
     return send_from_directory(str(rec_dir), filename)
 
 
+@app.route("/api/sessions/<sid>/video")
+def api_session_video(sid):
+    """Serve the video recording for a session."""
+    meta_path = _data_dir() / "sessions" / sid / "meta.json"
+    try:
+        meta = json.loads(meta_path.read_text())
+        vp = meta.get("video_path")
+        if vp and Path(vp).exists():
+            return send_from_directory(str(Path(vp).parent), Path(vp).name)
+    except Exception:
+        pass
+    # fallback: scan for any mp4 in the recording dir
+    rec_dir = _data_dir() / "sessions" / sid / "recording"
+    for f in rec_dir.glob("*.mp4"):
+        return send_from_directory(str(rec_dir), f.name)
+    return jsonify({"error": "No video found"}), 404
+
+
 # ─────────────────────────────────────────────────────────────
 # API — Browser window listing + per-session window pin
 # ─────────────────────────────────────────────────────────────
@@ -5058,6 +5076,9 @@ async function startIngestJob(url, body) {
 }
 
 // ── Sessions tab ─────────────────────────────────────────────
+// Store session data keyed by id so delegated handlers can look it up
+const _sessData = {};
+
 async function loadSessionsTab() {
   const grid = document.getElementById('sessions-grid');
   if (!grid) return;
@@ -5069,6 +5090,9 @@ async function loadSessionsTab() {
       grid.innerHTML = '<div class="card" style="color:var(--text2)">No sessions yet. Use the Record tab to start capturing.</div>';
       return;
     }
+    // cache data for delegated handlers
+    sessions.forEach(s => { _sessData[s.session_id] = s; });
+
     grid.innerHTML = sessions.map(s => {
       const badge = s.has_video
         ? '<span style="background:#1d3461;color:#93c5fd;border-radius:3px;padding:1px 6px;font-size:.7rem;margin-left:.4rem">🎬 Video</span>'
@@ -5076,54 +5100,86 @@ async function loadSessionsTab() {
       const detail = s.has_video
         ? '🎬 video · ' + s.size_mb + ' MB'
         : '📸 ' + s.screenshot_count + ' screenshot' + (s.screenshot_count !== 1 ? 's' : '') + ' · ' + s.size_mb + ' MB';
-      const videoActions = s.has_video ? (
-        '<div style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem;flex-wrap:wrap">' +
-          '<span style="font-size:.75rem;color:var(--text2)">Frame every</span>' +
-          '<input type="number" id="fi-' + s.session_id + '" value="5" min="1" max="30" step="1"' +
-          ' style="width:48px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:2px 5px;font-size:.75rem">' +
-          '<span style="font-size:.75rem;color:var(--text2)">sec</span>' +
-          '<button class="btn btn-ai btn-sm" onclick="ingestVideoSession(' + JSON.stringify(s.session_id) + ',' + JSON.stringify(s.video_path) + ')">' +
-            '🎬 Generate Guide' +
-          '</button>' +
-        '</div>'
-      ) : '';
-      const thumbBtn = s.has_video ? '' :
-        '<button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs(' + JSON.stringify(s.session_id) + ',' + JSON.stringify(s.folder_path) + ')">Show screenshots ▸</button>';
+
+      const videoActions = s.has_video
+        ? '<div style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem;flex-wrap:wrap">' +
+            '<span style="font-size:.75rem;color:var(--text2)">Frame every</span>' +
+            '<input type="number" id="fi-' + s.session_id + '" value="5" min="1" max="30" step="1"' +
+            ' style="width:48px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:2px 5px;font-size:.75rem">' +
+            '<span style="font-size:.75rem;color:var(--text2)">sec</span>' +
+            '<button class="btn btn-ai btn-sm" data-action="ingest-video" data-sid="' + s.session_id + '">🎬 Generate Guide</button>' +
+          '</div>'
+        : '';
+
+      const thumbsRow = s.has_video
+        ? (s.video_path
+            ? '<video controls style="width:100%;max-height:160px;border-radius:4px;margin-top:.4rem;background:#000">' +
+                '<source src="/api/sessions/' + s.session_id + '/video">' +
+              '</video>'
+            : '')
+        : '<button class="btn btn-secondary btn-sm" data-action="show-thumbs" data-sid="' + s.session_id + '">Show screenshots ▸</button>';
+
       return '<div class="card" id="sess-card-' + s.session_id + '" style="padding:.75rem">' +
         '<div style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.4rem">' +
           '<div style="flex:1;min-width:0">' +
-            '<div style="font-weight:600;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="sess-name-' + s.session_id + '">' + s.name + badge + '</div>' +
-            '<div style="font-size:.75rem;color:var(--text2);margin-top:.15rem">' + s.session_id + ' &nbsp;·&nbsp; ' + detail + ' &nbsp;·&nbsp; ' + s.recorded_at + '</div>' +
+            '<div style="font-weight:600;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+              '<span class="sess-name-text" id="sess-name-' + s.session_id + '">' + s.name + '</span>' + badge +
+            '</div>' +
+            '<div style="font-size:.75rem;color:var(--text2);margin-top:.15rem">' +
+              s.session_id + ' &nbsp;·&nbsp; ' + detail + ' &nbsp;·&nbsp; ' + s.recorded_at +
+            '</div>' +
           '</div>' +
           '<div style="display:flex;gap:.35rem;flex-shrink:0">' +
-            '<button class="btn btn-secondary btn-sm" onclick="renameSession(' + JSON.stringify(s.session_id) + ')" title="Rename">✏️</button>' +
-            '<button class="btn btn-secondary btn-sm" onclick="deleteSession(' + JSON.stringify(s.session_id) + ')" title="Delete" style="color:#f85149">🗑</button>' +
+            '<button class="btn btn-secondary btn-sm" data-action="rename" data-sid="' + s.session_id + '" title="Rename">✏️</button>' +
+            '<button class="btn btn-secondary btn-sm" data-action="delete" data-sid="' + s.session_id + '" title="Delete" style="color:#f85149">🗑</button>' +
           '</div>' +
         '</div>' +
         videoActions +
-        '<div id="sess-thumbs-' + s.session_id + '" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:.4rem">' + thumbBtn + '</div>' +
+        '<div id="sess-thumbs-' + s.session_id + '" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:.4rem">' +
+          thumbsRow +
+        '</div>' +
       '</div>';
     }).join('');
+
   } catch(e) {
     grid.innerHTML = '<div style="color:var(--red)">Failed to load sessions: ' + e + '</div>';
   }
 }
 
-async function loadSessionThumbs(sid, folderPath) {
+// Single delegated click handler on the grid — no inline onclick
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const sid    = btn.dataset.sid;
+  if (!sid) return;
+  if (action === 'rename')       renameSession(sid);
+  if (action === 'delete')       deleteSession(sid);
+  if (action === 'show-thumbs')  loadSessionThumbs(sid);
+  if (action === 'hide-thumbs')  hideSessThumb(sid);
+  if (action === 'ingest-video') ingestVideoSession(sid, (_sessData[sid] || {}).video_path);
+  if (action === 'preview-shot') openSessPreview(sid, btn.dataset.filename);
+});
+
+async function loadSessionThumbs(sid) {
   const wrap = document.getElementById('sess-thumbs-' + sid);
   if (!wrap) return;
   wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">Loading…</span>';
   try {
     const res = await fetch('/api/sessions/' + sid + '/screenshots');
     const shots = await res.json();
-    if (!shots.length) { wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">No screenshots</span>'; return; }
-    wrap.innerHTML = shots.map(sh =>
-      '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '"' +
-      ' title="' + sh.filename + '"' +
-      ' style="height:72px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover"' +
-      ' onclick="openSessPreview(' + JSON.stringify(sid) + ',' + JSON.stringify(sh.filename) + ')">'
-    ).join('') +
-    '<button class="btn btn-secondary btn-sm" style="align-self:flex-start;margin-top:2px" onclick="hideSessThumb(' + JSON.stringify(sid) + ')">▴ Hide</button>';
+    if (!shots.length) {
+      wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">No screenshots found</span>';
+      return;
+    }
+    wrap.innerHTML =
+      shots.map(sh =>
+        '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '"' +
+        ' title="' + sh.filename + '"' +
+        ' data-action="preview-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
+        ' style="height:72px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover">'
+      ).join('') +
+      '<button class="btn btn-secondary btn-sm" data-action="hide-thumbs" data-sid="' + sid + '" style="align-self:flex-start;margin-top:2px">▴ Hide</button>';
   } catch(e) {
     wrap.innerHTML = '<span style="color:var(--red);font-size:.8rem">Failed: ' + e + '</span>';
   }
@@ -5131,9 +5187,8 @@ async function loadSessionThumbs(sid, folderPath) {
 
 function hideSessThumb(sid) {
   const wrap = document.getElementById('sess-thumbs-' + sid);
-  const folderPath = '';  // not needed for re-showing without path
   if (wrap) wrap.innerHTML =
-    '<button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs(' + JSON.stringify(sid) + ',' + JSON.stringify('') + ')">Show screenshots \u25b8</button>';
+    '<button class="btn btn-secondary btn-sm" data-action="show-thumbs" data-sid="' + sid + '">Show screenshots ▸</button>';
 }
 
 function openSessPreview(sid, filename) {
@@ -5145,11 +5200,12 @@ function openSessPreview(sid, filename) {
 }
 
 async function ingestVideoSession(sid, videoPath) {
-  const title = prompt('Lab title for this guide:', document.getElementById('sess-name-' + sid)?.textContent?.replace(/🎬.*/, '').trim() || 'Untitled Lab');
+  const nameEl = document.getElementById('sess-name-' + sid);
+  const defaultTitle = nameEl ? nameEl.textContent.trim() : 'Untitled Lab';
+  const title = prompt('Lab title for this guide:', defaultTitle);
   if (!title || !title.trim()) return;
   const fiEl = document.getElementById('fi-' + sid);
   const interval = fiEl ? parseFloat(fiEl.value) || 5 : 5;
-  // Switch to ingest tab and kick off the job
   showMainTab('ingest');
   document.getElementById('ingest-folder-title').value = title.trim();
   const card = document.getElementById('ingest-progress-card');
@@ -5164,25 +5220,28 @@ async function renameSession(sid) {
   const newName = prompt('Rename session:', cur ? cur.textContent.trim() : sid);
   if (!newName || !newName.trim()) return;
   try {
-    await fetch('/api/sessions/' + sid + '/rename', {
+    const res = await fetch('/api/sessions/' + sid + '/rename', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({name: newName.trim()})
     });
+    const d = await res.json();
+    if (d.error) { alert('Rename failed: ' + d.error); return; }
     if (cur) cur.textContent = newName.trim();
-    // also refresh ingest session list in case it's open
+    if (_sessData[sid]) _sessData[sid].name = newName.trim();
     loadSessions();
   } catch(e) { alert('Rename failed: ' + e); }
 }
 
 async function deleteSession(sid) {
-  if (!confirm('Delete this capture session and all its screenshots? This cannot be undone.')) return;
+  if (!confirm('Delete this capture session and all its files? This cannot be undone.')) return;
   try {
     const res = await fetch('/api/sessions/' + sid, {method:'DELETE'});
     const d = await res.json();
     if (d.error) { alert('Delete failed: ' + d.error); return; }
     const card = document.getElementById('sess-card-' + sid);
     if (card) card.remove();
-    loadSessions(); // refresh ingest picker
+    delete _sessData[sid];
+    loadSessions();
   } catch(e) { alert('Delete failed: ' + e); }
 }
 
