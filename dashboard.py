@@ -2696,6 +2696,11 @@ def _render_html() -> str:
   .ann-swatch { width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.25);cursor:pointer;flex-shrink:0;display:inline-block;transition:transform .1s; }
   .ann-swatch:hover { transform:scale(1.25); }
   .ann-sel-info { font-size:.7rem;color:#58a6ff;padding:0 6px;background:rgba(88,166,255,.12);border-radius:4px;border:1px solid rgba(88,166,255,.3);white-space:nowrap; }
+  .ann-chip { display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:12px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-size:.72rem;color:var(--text);white-space:nowrap;transition:border-color .15s; }
+  .ann-chip:hover { border-color:var(--accent2); }
+  .ann-chip .chip-dot { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+  .ann-chip .chip-del { margin-left:3px;color:var(--text2);font-size:.65rem;line-height:1; }
+  .ann-chip .chip-del:hover { color:#f85149; }
 
   /* ── Quill rich-text editor dark theme ── */
   .ql-toolbar.ql-snow {
@@ -3285,6 +3290,11 @@ def _render_html() -> str:
         <button class="ann-tool-btn" id="ann-tool-circle" onclick="annSetTool('circle')" title="Ellipse (C)">○</button>
       </div>
 
+      <!-- Callout / bubble -->
+      <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn" id="ann-tool-bubble" onclick="annSetTool('bubble')" title="Speech Bubble / Callout (B)">💬</button>
+      </div>
+
       <!-- Text -->
       <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
         <button class="ann-tool-btn" id="ann-tool-text" onclick="annSetTool('text')" title="Text (T)">T</button>
@@ -3358,8 +3368,24 @@ def _render_html() -> str:
       <button class="btn btn-secondary btn-sm" onclick="annUndo()" title="Undo (⌘Z)">↩ Undo</button>
       <button class="btn btn-secondary btn-sm" id="ann-delete-btn" onclick="annDeleteSelected()" title="Delete selected (Delete key)" style="display:none;color:#f85149">🗑 Del</button>
       <button class="btn btn-secondary btn-sm" onclick="annClear()" title="Clear all annotations">🗑 Clear</button>
+      <button class="btn btn-secondary btn-sm" onclick="annToggleFavPanel()" title="Favorites & Recently Used" id="ann-fav-toggle-btn" style="font-size:13px">⭐</button>
       <button class="btn btn-primary  btn-sm" onclick="annSave()" title="Save (⌘S)">💾 Save</button>
       <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-annotate')">✕ Close</button>
+    </div>
+
+    <!-- Favorites / Recent panel (hidden by default) -->
+    <div id="ann-fav-panel" style="display:none;background:var(--surface2);border-bottom:1px solid var(--border);padding:6px 10px">
+      <!-- Recently used row -->
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+        <span style="font-size:.68rem;color:var(--text2);white-space:nowrap;min-width:72px">🕐 Recent</span>
+        <div id="ann-recent-chips" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+      </div>
+      <!-- Favorites row -->
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:.68rem;color:var(--text2);white-space:nowrap;min-width:72px">⭐ Saved</span>
+        <div id="ann-fav-chips" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+        <button class="btn btn-secondary btn-sm" onclick="annSaveAsFavorite()" title="Save current tool settings as a favorite" style="font-size:.72rem;white-space:nowrap;margin-left:4px">＋ Save current</button>
+      </div>
     </div>
 
     <!-- Canvas area -->
@@ -3986,9 +4012,8 @@ function annSetTool(tool) {
   const btn = document.getElementById('ann-tool-' + tool);
   if (btn) btn.classList.add('active');
 
-  const isShape  = ['rect','circle'].includes(tool);
+  const isShape  = ['rect','circle','bubble'].includes(tool);
   const isHL     = tool === 'highlight';
-  const isFree   = ['pen','highlight'].includes(tool);
 
   document.getElementById('ann-fill-row').style.display    = isShape  ? 'flex' : 'none';
   document.getElementById('ann-opacity-row').style.display = isHL     ? 'flex' : 'none';
@@ -4023,7 +4048,7 @@ function annSyncSelectedStyle() {
   obj.color     = document.getElementById('ann-color').value;
   obj.lineWidth = parseInt(document.getElementById('ann-size').value);
   if (obj.type === 'text') obj.fontSize = parseInt(document.getElementById('ann-font-size').value);
-  if (['rect','circle'].includes(obj.type)) {
+  if (['rect','circle','bubble'].includes(obj.type)) {
     obj.filled      = document.getElementById('ann-fill-check').checked;
     obj.fillColor   = document.getElementById('ann-fill-color').value;
     obj.fillOpacity = parseInt(document.getElementById('ann-fill-opacity').value) / 100;
@@ -4046,7 +4071,7 @@ function _annRefreshSelUI() {
   if (obj.color) document.getElementById('ann-color').value = obj.color;
   if (obj.lineWidth) { document.getElementById('ann-size').value = obj.lineWidth; document.getElementById('ann-size-label').textContent = obj.lineWidth; }
   if (obj.fontSize)  document.getElementById('ann-font-size').value = obj.fontSize;
-  document.getElementById('ann-fill-row').style.display = ['rect','circle'].includes(obj.type) ? 'flex' : 'none';
+  document.getElementById('ann-fill-row').style.display = ['rect','circle','bubble'].includes(obj.type) ? 'flex' : 'none';
   document.getElementById('ann-opacity-row').style.display = obj.type === 'highlight' ? 'flex' : 'none';
   if (['rect','circle'].includes(obj.type)) {
     document.getElementById('ann-fill-check').checked = !!obj.filled;
@@ -4357,10 +4382,25 @@ function _annBindEvents(ov) {
   fresh.addEventListener('mouseup',    _annOnUp);
   fresh.addEventListener('mouseleave', _annOnLeave);
   fresh.addEventListener('click',      _annOnClick);
+  fresh.addEventListener('dblclick',   _annOnDblClick);
   // Touch support
   fresh.addEventListener('touchstart',  e => { e.preventDefault(); _annOnDown(e); }, {passive:false});
   fresh.addEventListener('touchmove',   e => { e.preventDefault(); _annOnMove(e); }, {passive:false});
   fresh.addEventListener('touchend',    e => { e.preventDefault(); _annOnUp(e);   }, {passive:false});
+}
+
+function _annOnDblClick(e) {
+  // Double-click on a bubble or text object in select mode opens the text editor
+  const pos = _annPos(e);
+  const hit = _annHitTest(pos.x, pos.y);
+  if (hit.idx >= 0) {
+    const obj = _annObjects[hit.idx];
+    if (obj.type === 'bubble' || obj.type === 'text') {
+      _annSelected = hit.idx;
+      _annRefreshSelUI();
+      _annOpenBubbleTextEditor(hit.idx);
+    }
+  }
 }
 
 function _annOnDown(e) {
@@ -4475,6 +4515,8 @@ function _annOnMove(e) {
     oct.beginPath(); oct.moveTo(_annStart.x,_annStart.y); oct.lineTo(pos.x,pos.y); oct.stroke();
   } else if (_annTool === 'arrow') {
     _annDrawArrow(oct, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
+  } else if (_annTool === 'bubble') {
+    _annBubblePreview(oct, ov, _annStart.x, _annStart.y, pos.x, pos.y);
   }
   oct.restore();
 }
@@ -4502,12 +4544,14 @@ function _annOnUp(e) {
   if (_annTool === 'pen' || _annTool === 'highlight') {
     if (_annPenPts.length < 2) return;
     _annPushHistory();
-    _annObjects.push({
+    const newObj = {
       type: _annTool, points: _annPenPts.slice(),
       color, lineWidth: _annTool === 'highlight' ? size * 6 : size,
       opacity: _annTool === 'highlight' ? (parseFloat(document.getElementById('ann-opacity').value)/100||0.35) : 1,
-    });
+    };
+    _annObjects.push(newObj);
     _annPenPts = [];
+    _annTrackRecent(newObj);
     _annRender();
     return;
   }
@@ -4520,24 +4564,47 @@ function _annOnUp(e) {
   if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return; // ignore clicks
 
   _annPushHistory();
+  let newObj = null;
   if (_annTool === 'line') {
-    _annObjects.push({type:'line', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size});
+    newObj = {type:'line', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size};
   } else if (_annTool === 'arrow') {
-    _annObjects.push({type:'arrow', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size});
+    newObj = {type:'arrow', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size};
   } else if (_annTool === 'rect') {
-    _annObjects.push({type:'rect', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
+    newObj = {type:'rect', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
       filled: document.getElementById('ann-fill-check').checked,
       fillColor: document.getElementById('ann-fill-color').value,
       fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25,
-    });
+    };
   } else if (_annTool === 'circle') {
-    _annObjects.push({type:'circle', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
+    newObj = {type:'circle', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
       filled: document.getElementById('ann-fill-check').checked,
       fillColor: document.getElementById('ann-fill-color').value,
       fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25,
-    });
+    };
+  } else if (_annTool === 'bubble') {
+    newObj = {
+      type:'bubble', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
+      fillColor: document.getElementById('ann-fill-color').value || '#FFFFFF',
+      fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.92,
+      fontSize: parseInt(document.getElementById('ann-font-size').value),
+      text: '',
+      tailX: _annStart.x + dx * 0.2,
+      tailY: _annStart.y + dy + Math.max(22, Math.abs(dy) * 0.35),
+    };
   }
-  _annRender();
+  if (newObj) {
+    _annObjects.push(newObj);
+    _annTrackRecent(newObj);
+    // For bubble: immediately open text editor
+    if (newObj.type === 'bubble') {
+      _annRender();
+      _annSelected = _annObjects.length - 1;
+      _annRefreshSelUI();
+      _annOpenBubbleTextEditor(_annSelected);
+    } else {
+      _annRender();
+    }
+  }
 }
 
 function _annOnLeave(e) {
@@ -4571,14 +4638,19 @@ function _annOnClick(e) {
 
 function _annCommitText() {
   const ti = document.getElementById('ann-text-input');
-  if (!ti || ti.style.display === 'none' || !_annTextEl) return;
+  if (!ti || ti.style.display === 'none') return;
+  // Bubble edit mode
+  if (_annEditingObjIdx >= 0) { _annCommitBubbleEdit(); return; }
+  if (!_annTextEl) return;
   const text = ti.value.trim();
   if (text) {
     _annPushHistory();
-    _annObjects.push({
+    const newObj = {
       type: 'text', x: _annTextEl.x, y: _annTextEl.y,
       text, color: _annTextEl.color, fontSize: _annTextEl.size,
-    });
+    };
+    _annObjects.push(newObj);
+    _annTrackRecent(newObj);
     _annRender();
   }
   ti.style.display = 'none';
@@ -4601,6 +4673,375 @@ function _annDrawArrow(ctx, x1, y1, x2, y2, color, size) {
   ctx.lineTo(x2-headLen*Math.cos(angle+Math.PI/6), y2-headLen*Math.sin(angle+Math.PI/6));
   ctx.closePath(); ctx.fill();
   ctx.restore();
+}
+
+// ── Speech bubble (callout) ──────────────────────────────────
+
+function _annDrawBubble(ctx, obj) {
+  const {x, y, w, h} = _annNormRect(obj);
+  const r  = Math.min(14, w * 0.15, h * 0.25);
+  const lw = obj.lineWidth || 2;
+  const strokeColor = obj.color || '#1C1C1E';
+  const fillColor   = obj.fillColor  || '#FFFFFF';
+  const fillOp      = obj.fillOpacity != null ? obj.fillOpacity : 0.95;
+  // Tail tip
+  const tx = obj.tailX != null ? obj.tailX : x + w * 0.2;
+  const ty = obj.tailY != null ? obj.tailY : y + h + Math.max(22, h * 0.35);
+  // Tail base on bottom edge
+  const bc = x + w * 0.25;
+  const bw2 = Math.min(w * 0.1, 14);
+
+  ctx.save();
+  ctx.beginPath();
+  // Top edge
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y,   x + w, y + r);
+  // Right edge
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  // Bottom-right to tail base-right
+  ctx.lineTo(bc + bw2, y + h);
+  // Tail
+  ctx.lineTo(tx, ty);
+  ctx.lineTo(bc - bw2, y + h);
+  // Bottom-left
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  // Left edge
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+
+  ctx.globalAlpha = fillOp;
+  ctx.fillStyle   = fillColor;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth   = lw;
+  ctx.stroke();
+
+  // Text inside
+  if (obj.text) {
+    const fs   = obj.fontSize || 16;
+    const pad  = 10;
+    ctx.fillStyle    = obj.textColor || strokeColor;
+    ctx.font         = `${fs}px -apple-system,system-ui,sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign    = 'center';
+    ctx.globalAlpha  = 1;
+    const lines = _annWrapText(ctx, obj.text, w - pad * 2);
+    const lineH = fs * 1.3;
+    const totalH = lines.length * lineH;
+    const startY = y + (h - totalH) / 2 + lineH / 2;
+    lines.forEach((line, i) => ctx.fillText(line, x + w / 2, startY + i * lineH));
+  }
+  ctx.restore();
+}
+
+function _annWrapText(ctx, text, maxW) {
+  const result = [];
+  text.split('\\n').forEach(para => {
+    const words = para.split(' ');
+    let cur = '';
+    for (const word of words) {
+      const test = cur ? cur + ' ' + word : word;
+      if (ctx.measureText(test).width > maxW && cur) { result.push(cur); cur = word; }
+      else cur = test;
+    }
+    if (cur) result.push(cur);
+  });
+  return result.length ? result : [''];
+}
+
+// ── Bubble bbox & tail handle ────────────────────────────────
+
+function _annBubbleTailHandle(obj) {
+  const {x,y,w,h} = _annNormRect(obj);
+  return {
+    x: obj.tailX != null ? obj.tailX : x + w * 0.2,
+    y: obj.tailY != null ? obj.tailY : y + h + Math.max(22, h * 0.35),
+  };
+}
+
+// Patch _annHitTest to include bubble tail as handle index 8
+const _annHitTestOrig = _annHitTest;
+function _annHitTest(x, y) {
+  const HR = 8;
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    const obj = _annObjects[_annSelected];
+    if (obj.type === 'bubble') {
+      const t = _annBubbleTailHandle(obj);
+      if (Math.abs(x - t.x) <= HR + 2 && Math.abs(y - t.y) <= HR + 2)
+        return {idx: _annSelected, handle: 8}; // 8 = tail
+    }
+    const handles = _annHandles(_annBBox(obj));
+    for (let i = 0; i < handles.length; i++) {
+      if (Math.abs(x - handles[i].x) <= HR && Math.abs(y - handles[i].y) <= HR)
+        return {idx: _annSelected, handle: i};
+    }
+  }
+  for (let i = _annObjects.length - 1; i >= 0; i--) {
+    const bb = _annBBox(_annObjects[i]);
+    if (x >= bb.x && x <= bb.x+bb.w && y >= bb.y && y <= bb.y+bb.h)
+      return {idx: i, handle: -1};
+  }
+  return {idx: -1, handle: -1};
+}
+
+// Patch _annDrawHandles to also draw bubble tail handle
+const _annDrawHandlesOrig = _annDrawHandles;
+function _annDrawHandles(oct, bb) {
+  _annDrawHandlesOrig(oct, bb);
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    const obj = _annObjects[_annSelected];
+    if (obj.type === 'bubble') {
+      const t = _annBubbleTailHandle(obj);
+      oct.save();
+      oct.fillStyle   = '#FFCC00';
+      oct.strokeStyle = '#b8860b';
+      oct.lineWidth   = 1.5;
+      oct.beginPath(); oct.arc(t.x, t.y, 7, 0, Math.PI*2); oct.fill(); oct.stroke();
+      oct.restore();
+    }
+  }
+}
+
+// Patch _annApplyResize for bubble
+const _annApplyResizeOrig = _annApplyResize;
+function _annApplyResize(obj, snap, handle, dx, dy) {
+  if (obj.type === 'bubble') {
+    if (handle === 8) { // tail
+      obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
+      obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
+    } else {
+      _annApplyResizeOrig(obj, snap, handle, dx, dy);
+    }
+    return;
+  }
+  _annApplyResizeOrig(obj, snap, handle, dx, dy);
+}
+
+// Patch _annBBox for bubble (include tail in bounding consideration)
+const _annBBoxOrig = _annBBox;
+function _annBBox(obj) {
+  if (obj.type === 'bubble') {
+    const {x,y,w,h} = _annNormRect(obj);
+    const t = _annBubbleTailHandle(obj);
+    const minX = Math.min(x, t.x) - 8;
+    const minY = Math.min(y, t.y) - 8;
+    const maxX = Math.max(x + w, t.x) + 8;
+    const maxY = Math.max(y + h, t.y) + 8;
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  }
+  return _annBBoxOrig(obj);
+}
+
+// Patch _annDrawObj for bubble
+const _annDrawObjOrig = _annDrawObj;
+function _annDrawObj(ctx, obj) {
+  if (obj.type === 'bubble') { _annDrawBubble(ctx, obj); return; }
+  _annDrawObjOrig(ctx, obj);
+}
+
+// Patch _annMoveObj for bubble
+const _annMoveObjOrig = _annMoveObj;
+function _annMoveObj(obj, snap, dx, dy) {
+  if (obj.type === 'bubble') {
+    obj.x = snap.x + dx; obj.y = snap.y + dy;
+    obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
+    obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
+    return;
+  }
+  _annMoveObjOrig(obj, snap, dx, dy);
+}
+
+// ── Bubble text editing ──────────────────────────────────────
+
+let _annEditingObjIdx = -1; // index of bubble/text being edited
+
+function _annOpenBubbleTextEditor(objIdx) {
+  const obj = _annObjects[objIdx];
+  if (!obj || (obj.type !== 'bubble' && obj.type !== 'text')) return;
+  _annEditingObjIdx = objIdx;
+  const ov   = _annOverlay();
+  const rect = ov.getBoundingClientRect();
+  const scaleX = rect.width  / ov.width;
+  const scaleY = rect.height / ov.height;
+  const ti = document.getElementById('ann-text-input');
+  let sx, sy, sw, fs;
+  if (obj.type === 'bubble') {
+    const nb = _annNormRect(obj);
+    fs = obj.fontSize || 16;
+    sx = nb.x; sy = nb.y; sw = nb.w;
+    ti.style.width    = (sw * scaleX - 16) + 'px';
+    ti.style.left     = (nb.x * scaleX + 8) + 'px';
+    ti.style.top      = (nb.y * scaleY + 6) + 'px';
+  } else {
+    fs = obj.fontSize || 24;
+    sx = obj.x; sy = obj.y;
+    ti.style.width = 'auto';
+    ti.style.left  = (obj.x * scaleX) + 'px';
+    ti.style.top   = (obj.y * scaleY) + 'px';
+  }
+  ti.style.fontSize = (fs * scaleY) + 'px';
+  ti.style.color    = obj.textColor || obj.color || '#fff';
+  ti.style.display  = 'block';
+  ti.value = obj.text || '';
+  ti.rows  = 3;
+  ti.focus();
+  ti.select();
+}
+
+function _annCommitBubbleEdit() {
+  if (_annEditingObjIdx < 0) return;
+  const ti  = document.getElementById('ann-text-input');
+  const obj = _annObjects[_annEditingObjIdx];
+  if (obj) {
+    _annPushHistory();
+    obj.text = ti.value;
+    _annRender();
+  }
+  ti.style.display = 'none';
+  ti.value = '';
+  _annEditingObjIdx = -1;
+}
+
+// ── Bubble preview on overlay during draw ────────────────────
+
+function _annBubblePreview(oct, ov, x1, y1, x2, y2) {
+  const dx = x2-x1, dy = y2-y1;
+  oct.clearRect(0,0,ov.width,ov.height);
+  const color = document.getElementById('ann-color').value;
+  const size  = parseInt(document.getElementById('ann-size').value);
+  const tmpObj = {
+    type:'bubble', x:x1, y:y1, w:dx, h:dy,
+    color, lineWidth:size, fillColor:'#FFFFFF', fillOpacity:0.9,
+    text:'', tailX: x1 + dx*0.2, tailY: y1 + dy + Math.max(22, Math.abs(dy)*0.35),
+  };
+  // Draw on overlay (temporary ctx)
+  oct.save();
+  oct.globalAlpha = 0.75;
+  _annDrawBubble(oct, tmpObj);
+  oct.restore();
+}
+
+// ── Favorites & Recently Used ────────────────────────────────
+
+function _annCurrentPreset() {
+  return {
+    type:        _annTool,
+    color:       document.getElementById('ann-color').value,
+    lineWidth:   parseInt(document.getElementById('ann-size').value),
+    fontSize:    parseInt(document.getElementById('ann-font-size').value),
+    filled:      document.getElementById('ann-fill-check').checked,
+    fillColor:   document.getElementById('ann-fill-color').value,
+    fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100,
+  };
+}
+
+function _annApplyPreset(p) {
+  annSetTool(p.type);
+  if (p.color)     document.getElementById('ann-color').value     = p.color;
+  if (p.lineWidth) { document.getElementById('ann-size').value    = p.lineWidth;
+                     document.getElementById('ann-size-label').textContent = p.lineWidth; }
+  if (p.fontSize)  document.getElementById('ann-font-size').value = p.fontSize;
+  if (p.filled != null)   document.getElementById('ann-fill-check').checked = p.filled;
+  if (p.fillColor)        document.getElementById('ann-fill-color').value   = p.fillColor;
+  if (p.fillOpacity!=null) document.getElementById('ann-fill-opacity').value = Math.round(p.fillOpacity*100);
+}
+
+function _annToolIcon(type) {
+  return {pen:'🖊',highlight:'🖍',line:'╱',arrow:'➡',rect:'▭',circle:'○',text:'T',bubble:'💬',select:'↖'}[type] || '?';
+}
+
+// ── Recently used ────────────────────────────────────────────
+
+function _annTrackRecent(obj) {
+  const preset = {
+    type: obj.type,
+    color: obj.color || '#FF3B30',
+    lineWidth: obj.lineWidth || 3,
+    fontSize: obj.fontSize || 24,
+    filled: !!obj.filled,
+    fillColor: obj.fillColor || '#FF3B30',
+    fillOpacity: obj.fillOpacity || 0.25,
+  };
+  let recents = JSON.parse(localStorage.getItem('ann_recent') || '[]');
+  // Deduplicate: remove if same type+color
+  recents = recents.filter(r => !(r.type === preset.type && r.color === preset.color));
+  recents.unshift(preset);
+  if (recents.length > 8) recents = recents.slice(0, 8);
+  localStorage.setItem('ann_recent', JSON.stringify(recents));
+  _annRenderFavPanel();
+}
+
+// ── Saved favorites ──────────────────────────────────────────
+
+function annSaveAsFavorite() {
+  const p = _annCurrentPreset();
+  const label = prompt('Name this favorite:', _annToolIcon(p.type) + ' ' + p.type);
+  if (!label) return;
+  p.label = label;
+  p.id    = Date.now().toString(36);
+  let favs = JSON.parse(localStorage.getItem('ann_favorites') || '[]');
+  favs.push(p);
+  localStorage.setItem('ann_favorites', JSON.stringify(favs));
+  _annRenderFavPanel();
+}
+
+function _annDeleteFavorite(id) {
+  let favs = JSON.parse(localStorage.getItem('ann_favorites') || '[]');
+  favs = favs.filter(f => f.id !== id);
+  localStorage.setItem('ann_favorites', JSON.stringify(favs));
+  _annRenderFavPanel();
+}
+
+function annToggleFavPanel() {
+  const p = document.getElementById('ann-fav-panel');
+  const btn = document.getElementById('ann-fav-toggle-btn');
+  if (p.style.display === 'none') {
+    p.style.display = 'block';
+    btn.style.background = 'var(--accent2)';
+    btn.style.color = '#fff';
+    _annRenderFavPanel();
+  } else {
+    p.style.display = 'none';
+    btn.style.background = '';
+    btn.style.color = '';
+  }
+}
+
+function _annRenderFavPanel() {
+  // Recently used
+  const recents = JSON.parse(localStorage.getItem('ann_recent') || '[]');
+  const recentWrap = document.getElementById('ann-recent-chips');
+  if (recentWrap) {
+    recentWrap.innerHTML = recents.length
+      ? recents.map((r, i) =>
+          '<div class="ann-chip" title="' + r.type + '" ' +
+          'onclick=\'_annApplyPreset(' + JSON.stringify(r).replace(/'/g,"\\'") + ')\'>' +
+          '<span class="chip-dot" style="background:' + r.color + ';border:1px solid rgba(0,0,0,.2)"></span>' +
+          _annToolIcon(r.type) + ' ' + r.type +
+          '</div>'
+        ).join('')
+      : '<span style="font-size:.7rem;color:var(--text2)">No annotations used yet</span>';
+  }
+
+  // Favorites
+  const favs = JSON.parse(localStorage.getItem('ann_favorites') || '[]');
+  const favWrap = document.getElementById('ann-fav-chips');
+  if (favWrap) {
+    favWrap.innerHTML = favs.length
+      ? favs.map(f =>
+          '<div class="ann-chip" title="' + (f.label||f.type) + '">' +
+          '<span class="chip-dot" onclick=\'_annApplyPreset(' + JSON.stringify(f).replace(/'/g,"\\'") + ')\' style="background:' + f.color + ';border:1px solid rgba(0,0,0,.2)"></span>' +
+          '<span onclick=\'_annApplyPreset(' + JSON.stringify(f).replace(/'/g,"\\'") + ')\'>' + (f.label||f.type) + '</span>' +
+          '<span class="chip-del" onclick="_annDeleteFavorite(\'' + f.id + '\')" title="Remove favorite">✕</span>' +
+          '</div>'
+        ).join('')
+      : '<span style="font-size:.7rem;color:var(--text2)">No favorites saved yet</span>';
+  }
 }
 
 // ── Open annotation modal ────────────────────────────────────
@@ -4688,7 +5129,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const ti = document.getElementById('ann-text-input');
   if (ti) {
     ti.addEventListener('keydown', e => {
+      // Shift+Enter always adds a newline; plain Enter commits (both text and bubble)
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _annCommitText(); }
+      if (e.key === 'Escape') { _annEditingObjIdx = -1; _annTextEl = null; ti.style.display='none'; }
     });
   }
   document.addEventListener('keydown', e => {
@@ -4705,6 +5148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'l' || e.key === 'L') annSetTool('line');
     if (e.key === 'r' || e.key === 'R') annSetTool('rect');
     if (e.key === 'c' || e.key === 'C') annSetTool('circle');
+    if (e.key === 'b' || e.key === 'B') annSetTool('bubble');
     if (e.key === 't' || e.key === 'T') annSetTool('text');
     if (e.key === 'h' || e.key === 'H') annSetTool('highlight');
   });
