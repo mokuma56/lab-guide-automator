@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lab-guide-automator"
+version = "0.1.0"
+description = "Agentic MCP server for automating lab guide creation from screen recordings"
+requires-python = ">=3.11"
+dependencies = [
+    # MCP server
+    "fastmcp>=2.0",
+    # AI providers
+    "openai>=1.40",
+    "anthropic>=0.34",
+    # Vision / media
+    "Pillow>=10.0",
+    # Export
+    "weasyprint>=61.0",
+    "python-docx>=1.1",
+    "markdown>=3.6",
+    "jinja2>=3.1",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    # Utilities
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+    "typer>=0.12",
+    "pydantic-settings>=2.14.2",
+    "flask>=3.1.3",
+    "flask-cors>=6.0.5",
+    "pypdf>=6.14.2",
+    "beautifulsoup4>=4.15.0",
+]
+
+[project.scripts]
+lab-guide = "lab_guide_automator.cli:app"
+lab-guide-mcp = "lab_guide_automator.server:main"
+lab-guide-dashboard = "dashboard:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lab_guide_automator"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]

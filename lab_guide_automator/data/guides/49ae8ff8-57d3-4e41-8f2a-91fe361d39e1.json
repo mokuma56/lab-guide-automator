@@ -1,0 +1,22 @@
+{
+  "id": "49ae8ff8-57d3-4e41-8f2a-91fe361d39e1",
+  "metadata": {
+    "title": "Test Lab",
+    "subtitle": "",
+    "version": "1.0",
+    "author": "MaoKuma",
+    "date": "2026-07-18",
+    "lab_duration_minutes": 60,
+    "difficulty": "intermediate",
+    "tags": [],
+    "prerequisites": []
+  },
+  "introduction": "",
+  "learning_objectives": [],
+  "sections": [],
+  "conclusion": "",
+  "topology_image": null,
+  "recording_path": null,
+  "created_at": "2026-07-18T15:26:06.477959",
+  "updated_at": "2026-07-18T15:26:06.478107"
+}

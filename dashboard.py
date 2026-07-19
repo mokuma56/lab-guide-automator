@@ -1,0 +1,3601 @@
+"""
+Lab Guide Automator — Web Dashboard
+Runs on http://localhost:5051 by default
+"""
+from __future__ import annotations
+import asyncio
+import json
+import queue
+import re
+import subprocess
+import threading
+import time
+import uuid
+from pathlib import Path
+from typing import Optional
+
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
+from flask_cors import CORS
+
+from lab_guide_automator.config import Settings
+from lab_guide_automator.models import LabGuide, LabMetadata, LabSection, LabStep
+import lab_guide_automator.editor as editor
+import lab_guide_automator.ingest as ingest
+from export.exporter import (
+    export_markdown, export_pdf, export_html, export_docx, export_mkdocs,
+)
+from recording.recorder import (
+    RecordingSession, start_recording, stop_recording, take_screenshot,
+)
+
+app = Flask(__name__)
+CORS(app)
+
+settings = Settings()
+
+# ── In-memory state ──────────────────────────────────────────
+_active_sessions: dict[str, RecordingSession] = {}
+_loaded_guides: dict[str, LabGuide] = {}
+_progress_queues: dict[str, queue.Queue] = {}   # job_id → SSE event queue
+
+
+# ── Helpers ──────────────────────────────────────────────────
+
+def _data_dir() -> Path:
+    d = settings.data_dir
+    if not d.is_absolute():
+        d = Path(__file__).parent / d
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _guide_path(guide_id: str) -> Path:
+    return _data_dir() / "guides" / f"{guide_id}.json"
+
+
+def _load_guide(guide_id: str) -> LabGuide:
+    if guide_id in _loaded_guides:
+        return _loaded_guides[guide_id]
+    p = _guide_path(guide_id)
+    if not p.exists():
+        raise FileNotFoundError(f"Guide not found: {guide_id}")
+    g = LabGuide.load(p)
+    _loaded_guides[guide_id] = g
+    return g
+
+
+def _save_guide(guide: LabGuide) -> None:
+    _loaded_guides[guide.id] = guide
+    guide.save(_guide_path(guide.id))
+
+
+def _renumber_steps(guide: LabGuide) -> None:
+    """Assign globally sequential step.order values across all sections."""
+    n = 1
+    for sec in guide.sections:
+        for step in sec.steps:
+            step.order = n
+            n += 1
+
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+def _run_async(coro):
+    """Run an async coroutine from a sync Flask thread."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+# ─────────────────────────────────────────────────────────────
+# Main page
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    return Response(_render_html(), mimetype="text/html")
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Guides
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/guides")
+def api_list_guides():
+    guides_dir = _data_dir() / "guides"
+    guides_dir.mkdir(exist_ok=True)
+    result = []
+    for p in sorted(guides_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            g = LabGuide.load(p)
+            result.append({
+                "id": g.id,
+                "title": g.metadata.title,
+                "version": g.metadata.version,
+                "author": g.metadata.author,
+                "difficulty": g.metadata.difficulty,
+                "duration": g.metadata.lab_duration_minutes,
+                "sections": len(g.sections),
+                "steps": g.step_count(),
+                "objectives": len(g.learning_objectives),
+                "updated_at": g.updated_at,
+            })
+        except Exception:
+            pass
+    return jsonify(result)
+
+
+@app.route("/api/guides", methods=["POST"])
+def api_create_guide():
+    from lab_guide_automator.models import LabSection, LabStep
+    data = request.json or {}
+    title = data.get("title", "Untitled Lab")
+    author = data.get("author", "")
+
+    default_sections = [
+        LabSection(
+            title="Introduction",
+            overview="Overview of the lab objectives and prerequisites.",
+            steps=[
+                LabStep(
+                    order=1,
+                    title="Lab Overview",
+                    instruction="Welcome to the lab. In this section you will learn what the lab covers, what you need before starting, and how to navigate the environment.",
+                    expected_result="",
+                )
+            ],
+        ),
+        LabSection(
+            title="Section 1",
+            overview="",
+            steps=[
+                LabStep(
+                    order=1,
+                    title="Step title",
+                    instruction="Describe what the learner should do in this step.",
+                    expected_result="",
+                )
+            ],
+        ),
+        LabSection(
+            title="Conclusion",
+            overview="Summary and next steps.",
+            steps=[
+                LabStep(
+                    order=1,
+                    title="Summary",
+                    instruction="Congratulations — you have completed the lab. Review what you accomplished and explore the suggested next steps.",
+                    expected_result="",
+                )
+            ],
+        ),
+    ]
+
+    guide = LabGuide(
+        metadata=LabMetadata(
+            title=title,
+            author=author,
+            difficulty=data.get("difficulty", "intermediate"),
+            lab_duration_minutes=int(data.get("duration", 60)),
+        ),
+        introduction=f"This lab guides you through {title}.",
+        conclusion="You have successfully completed all sections of this lab.",
+        sections=default_sections,
+    )
+    _save_guide(guide)
+    return jsonify({"id": guide.id, "title": guide.metadata.title})
+
+
+@app.route("/api/guides/<guide_id>")
+def api_get_guide(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        return jsonify(g.model_dump())
+    except FileNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+
+
+@app.route("/api/guides/<guide_id>", methods=["DELETE"])
+def api_delete_guide(guide_id):
+    p = _guide_path(guide_id)
+    if p.exists():
+        p.unlink()
+    _loaded_guides.pop(guide_id, None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/guides/<guide_id>/metadata", methods=["POST"])
+def api_update_metadata(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        data = request.json or {}
+        m = g.metadata
+        for field in ["title", "subtitle", "version", "author", "difficulty"]:
+            if field in data:
+                setattr(m, field, data[field])
+        if "duration" in data:
+            m.lab_duration_minutes = int(data["duration"])
+        if "tags" in data:
+            m.tags = data["tags"]
+        if "prerequisites" in data:
+            m.prerequisites = data["prerequisites"]
+        g.touch()
+        _save_guide(g)
+        return jsonify(m.model_dump())
+    except FileNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Guide content editing
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/rewrite", methods=["POST"])
+def api_rewrite_step(guide_id, step_id):
+    try:
+        g = _load_guide(guide_id)
+        feedback = (request.json or {}).get("feedback", "")
+        step = _run_async(editor.rewrite_step(settings, g, step_id, feedback))
+        _save_guide(g)
+        return jsonify({"id": step.id, "instruction": step.instruction, "expected_result": step.expected_result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/step/<step_id>", methods=["POST"])
+def api_update_step(guide_id, step_id):
+    """Direct (non-AI) update to a step's fields."""
+    try:
+        g = _load_guide(guide_id)
+        step = g.get_step(step_id)
+        if not step:
+            return jsonify({"error": "Step not found"}), 404
+        data = request.json or {}
+        for field in ["title", "instruction", "expected_result", "notes"]:
+            if field in data:
+                setattr(step, field, data[field])
+        g.touch()
+        _save_guide(g)
+        return jsonify(step.model_dump())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/rewrite", methods=["POST"])
+def api_rewrite_section(guide_id, section_id):
+    try:
+        g = _load_guide(guide_id)
+        feedback = (request.json or {}).get("feedback", "")
+        sec = _run_async(editor.rewrite_section_overview(settings, g, section_id, feedback))
+        _save_guide(g)
+        return jsonify({"id": sec.id, "overview": sec.overview})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/introduction/rewrite", methods=["POST"])
+def api_rewrite_intro(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        feedback = (request.json or {}).get("feedback", "")
+        text = _run_async(editor.rewrite_introduction(settings, g, feedback))
+        _save_guide(g)
+        return jsonify({"introduction": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/introduction", methods=["POST"])
+def api_save_intro(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        g.introduction = (request.json or {}).get("text", g.introduction)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/conclusion/rewrite", methods=["POST"])
+def api_rewrite_conclusion(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        feedback = (request.json or {}).get("feedback", "")
+        text = _run_async(editor.rewrite_conclusion(settings, g, feedback))
+        _save_guide(g)
+        return jsonify({"conclusion": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/conclusion", methods=["POST"])
+def api_save_conclusion(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        g.conclusion = (request.json or {}).get("text", g.conclusion)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/objective", methods=["POST"])
+def api_add_objective(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        desc = (request.json or {}).get("description", "")
+        obj = _run_async(editor.add_learning_objective(settings, g, desc))
+        _save_guide(g)
+        return jsonify({"id": obj.id, "text": obj.text, "bloom_level": obj.bloom_level})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/objective/<obj_id>", methods=["DELETE"])
+def api_delete_objective(guide_id, obj_id):
+    try:
+        g = _load_guide(guide_id)
+        g.learning_objectives = [o for o in g.learning_objectives if o.id != obj_id]
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/models")
+def api_models():
+    """Return available Copilot models, fetched live from the Copilot API."""
+    import subprocess
+    try:
+        from lab_guide_automator.ai_client import _get_copilot_token, _make_http_client
+        import json as _json
+        token = _get_copilot_token()
+        client = _make_http_client()
+        resp = client.get(
+            "https://api.githubcopilot.com/models",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Copilot-Integration-Id": "vscode-chat",
+            },
+        )
+        data = resp.json()
+        models = [
+            {"id": m["id"], "name": m.get("name", m["id"])}
+            for m in data.get("data", [])
+            if "embedding" not in m["id"].lower()
+        ]
+        return jsonify({"models": models, "current": settings.copilot_model})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/settings/model", methods=["POST"])
+def api_set_model():
+    """Switch the active Copilot model at runtime (no restart needed)."""
+    model = (request.json or {}).get("model", "").strip()
+    if not model:
+        return jsonify({"error": "model required"}), 400
+    settings.copilot_model = model
+    return jsonify({"ok": True, "model": model})
+
+
+@app.route("/api/guides/<guide_id>/suggest", methods=["POST"])
+def api_suggest(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        suggestions = _run_async(editor.suggest_improvements(settings, g))
+        return jsonify({"suggestions": suggestions})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/apply-suggestion", methods=["POST"])
+def api_apply_suggestion(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        data = request.json or {}
+        suggestion = data.get("suggestion", "").strip()
+        if not suggestion:
+            return jsonify({"error": "suggestion is required"}), 400
+        updated = _run_async(editor.apply_suggestion(settings, g, suggestion))
+        _save_guide(updated)
+        return jsonify({"ok": True, "title": updated.metadata.title})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/sync-config", methods=["GET", "POST"])
+def api_sync_config(guide_id):
+    """Get or save the GitHub sync config for a specific guide."""
+    g = _load_guide(guide_id)
+    if request.method == "GET":
+        return jsonify({
+            "github_repo": g.github_repo,
+            "github_branch": g.github_branch,
+            "last_published": g.last_published,
+        })
+    data = request.json or {}
+    g.github_repo = data.get("github_repo", g.github_repo).strip()
+    g.github_branch = data.get("github_branch", g.github_branch).strip() or "main"
+    _save_guide(g)
+    return jsonify({"ok": True, "github_repo": g.github_repo, "github_branch": g.github_branch})
+
+
+@app.route("/api/guides/<guide_id>/publish")
+def api_publish(guide_id):
+    """
+    Build MkDocs site and push to the guide's configured GitHub repo.
+    Streams progress as SSE so the UI can show a live log.
+    """
+    from export.exporter import export_mkdocs, push_mkdocs_to_git
+    from datetime import datetime as _dt
+
+    def _generate():
+        try:
+            g = _load_guide(guide_id)
+            if not g.github_repo:
+                yield f"data: {json.dumps({'type':'error','message':'No GitHub repo configured for this guide.'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'type':'progress','message':'Building MkDocs site…'})}\n\n"
+            exports_dir = _data_dir() / "exports"
+            out_dir = exports_dir / f"{guide_id}-mkdocs"
+            export_mkdocs(g, out_dir)
+            yield f"data: {json.dumps({'type':'progress','message':f'Site built → {out_dir.name}'})}\n\n"
+
+            yield f"data: {json.dumps({'type':'progress','message':f'Pushing to {g.github_repo} ({g.github_branch})…'})}\n\n"
+            result = push_mkdocs_to_git(out_dir, g.github_repo, g.github_branch)
+            yield f"data: {json.dumps({'type':'progress','message':result})}\n\n"
+
+            # Record timestamp
+            g.last_published = _dt.utcnow().isoformat()
+            _save_guide(g)
+
+            yield f"data: {json.dumps({'type':'done','message':'Published successfully!','last_published':g.last_published})}\n\n"
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr or ""
+            msg = f"git error (exit {exc.returncode}): {stderr.strip() or str(exc)}"
+            yield f"data: {json.dumps({'type':'error','message':msg})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type':'error','message':str(exc)})}\n\n"
+
+    return app.response_class(_generate(), mimetype="text/event-stream",
+                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/guides/<guide_id>/step", methods=["POST"])
+def api_add_step(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        data = request.json or {}
+        step = _run_async(editor.add_step(
+            settings, g,
+            data["section_id"],
+            data["title"],
+            data.get("description", data["title"]),
+            data.get("insert_after_step_id"),
+        ))
+        _renumber_steps(g)
+        _save_guide(g)
+        return jsonify(step.model_dump())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section", methods=["POST"])
+def api_add_section(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        data = request.json or {}
+        title = data.get("title", "New Section")
+        overview = data.get("overview", "")
+        sec = LabSection(title=title, overview=overview)
+        g.sections.append(sec)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"id": sec.id, "title": sec.title, "overview": sec.overview})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>", methods=["POST"])
+def api_update_section(guide_id, section_id):
+    try:
+        g = _load_guide(guide_id)
+        sec = g.get_section(section_id)
+        if not sec:
+            return jsonify({"error": "Section not found"}), 404
+        data = request.json or {}
+        if "title" in data:
+            sec.title = data["title"]
+        if "overview" in data:
+            sec.overview = data["overview"]
+        g.touch()
+        _save_guide(g)
+        return jsonify({"id": sec.id, "title": sec.title, "overview": sec.overview})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>", methods=["DELETE"])
+def api_delete_section(guide_id, section_id):
+    try:
+        g = _load_guide(guide_id)
+        g.sections = [s for s in g.sections if s.id != section_id]
+        _renumber_steps(g)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/sections/reorder", methods=["POST"])
+def api_sections_reorder(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        order = (request.json or {}).get("order", [])
+        id_to_sec = {s.id: s for s in g.sections}
+        g.sections = [id_to_sec[sid] for sid in order if sid in id_to_sec]
+        # Keep any sections not mentioned in the order list at the end
+        mentioned = set(order)
+        g.sections += [s for s in id_to_sec.values() if s.id not in mentioned]
+        _renumber_steps(g)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True, "guide": g.model_dump()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Recording
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/record/start", methods=["POST"])
+def api_record_start():
+    try:
+        data = request.json or {}
+        sid = str(uuid.uuid4())[:8]
+        out_dir = _data_dir() / "sessions" / sid / "recording"
+        session = start_recording(sid, out_dir, audio=data.get("audio", True))
+        _active_sessions[sid] = session
+        return jsonify({"session_id": sid, "status": "recording"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/record/stop", methods=["POST"])
+def api_record_stop():
+    try:
+        sid = (request.json or {}).get("session_id", "")
+        session = _active_sessions.get(sid)
+        if not session:
+            return jsonify({"error": "No active session"}), 404
+        video_path = stop_recording(session)
+        del _active_sessions[sid]
+        return jsonify({
+            "session_id": sid,
+            "video_path": str(video_path),
+            "duration_s": round(session.elapsed, 1),
+            "screenshots": len(session.screenshots),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/record/screenshot", methods=["POST"])
+def api_screenshot():
+    try:
+        data = request.json or {}
+        sid = data.get("session_id", "")
+        session = _active_sessions.get(sid)
+        if not session:
+            return jsonify({"error": "No active session"}), 404
+        path, seq = take_screenshot(session, data.get("label", ""))
+        # Also copy into the screenshot repository so it appears in the repo browser
+        try:
+            import shutil as _shutil
+            dest = _ss_dir() / path.name
+            _shutil.copy2(path, dest)
+        except Exception:
+            pass
+        return jsonify({"path": str(path), "seq": seq, "elapsed_s": round(session.elapsed, 1),
+                        "repo_filename": path.name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/record/status")
+def api_record_status():
+    return jsonify([
+        {"session_id": sid, "elapsed_s": round(s.elapsed, 1),
+         "screenshots": len(s.screenshots), "running": s.is_running()}
+        for sid, s in _active_sessions.items()
+    ])
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Screenshot Repository
+# ─────────────────────────────────────────────────────────────
+
+def _ss_dir() -> Path:
+    d = _data_dir() / "screenshots"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _ss_meta_path() -> Path:
+    return _ss_dir() / "_meta.json"
+
+def _load_ss_meta() -> dict:
+    p = _ss_meta_path()
+    if p.exists():
+        try:
+            return json.load(open(p))
+        except Exception:
+            pass
+    return {}
+
+def _save_ss_meta(meta: dict) -> None:
+    json.dump(meta, open(_ss_meta_path(), "w"), indent=2)
+
+
+@app.route("/api/screenshots")
+def api_list_screenshots():
+    """List all screenshots in the repository."""
+    ss_dir = _ss_dir()
+    meta = _load_ss_meta()
+    items = []
+    for f in sorted(ss_dir.glob("*.png")) + sorted(ss_dir.glob("*.jpg")) + sorted(ss_dir.glob("*.jpeg")):
+        fname = f.name
+        items.append({
+            "filename": fname,
+            "url": f"/api/screenshots/file/{fname}",
+            "caption": meta.get(fname, {}).get("caption", ""),
+            "size": f.stat().st_size,
+            "mtime": f.stat().st_mtime,
+        })
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return jsonify(items)
+
+
+@app.route("/api/screenshots/file/<filename>")
+def api_screenshot_file(filename):
+    """Serve a screenshot image."""
+    from flask import send_from_directory
+    return send_from_directory(str(_ss_dir()), filename)
+
+
+@app.route("/api/screenshots/upload", methods=["POST"])
+def api_screenshot_upload():
+    """Upload one or more screenshots to the repository."""
+    files = request.files.getlist("files")
+    saved = []
+    for f in files:
+        ext = Path(f.filename).suffix.lower() or ".png"
+        fname = f"{uuid.uuid4().hex[:10]}{ext}"
+        dest = _ss_dir() / fname
+        f.save(str(dest))
+        saved.append({"filename": fname, "url": f"/api/screenshots/file/{fname}"})
+    return jsonify(saved)
+
+
+@app.route("/api/screenshots/<filename>/delete", methods=["POST"])
+def api_screenshot_delete(filename):
+    """Delete a screenshot from the repository."""
+    p = _ss_dir() / filename
+    if p.exists():
+        p.unlink()
+    meta = _load_ss_meta()
+    meta.pop(filename, None)
+    _save_ss_meta(meta)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/screenshots/<filename>/caption", methods=["POST"])
+def api_screenshot_caption(filename):
+    """AI-generate or manually set a caption for a screenshot."""
+    data = request.json or {}
+    manual = data.get("caption")
+    meta = _load_ss_meta()
+    if manual is not None:
+        meta.setdefault(filename, {})["caption"] = manual
+        _save_ss_meta(meta)
+        return jsonify({"caption": manual})
+    # AI vision caption
+    p = _ss_dir() / filename
+    if not p.exists():
+        return jsonify({"error": "File not found"}), 404
+    try:
+        import base64
+        img_b64 = base64.b64encode(p.read_bytes()).decode()
+        ext = p.suffix.lstrip(".")
+        caption = _run_async(_ai_caption_image(img_b64, ext))
+        meta.setdefault(filename, {})["caption"] = caption
+        _save_ss_meta(meta)
+        return jsonify({"caption": caption})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+async def _ai_caption_image(img_b64: str, ext: str) -> str:
+    """Call vision AI to generate a caption for an image."""
+    from lab_guide_automator import ai_client as _ai
+    client = _ai._make_http_client()
+    token = _ai._get_copilot_token()
+    model = settings.vision_model()
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{img_b64}"}},
+                {"type": "text", "text": (
+                    "You are writing captions for a Cisco lab guide. "
+                    "Write a single concise caption (max 15 words) describing what this screenshot shows. "
+                    "Focus on the UI element or action visible. No quotes, no period at the end."
+                )},
+            ]
+        }],
+        "max_tokens": 60,
+    }
+    resp = client.post(
+        "https://api.githubcopilot.com/chat/completions",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip().strip('"')
+
+
+# ── Step screenshot management ────────────────────────────────
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/screenshots", methods=["POST"])
+def api_step_add_screenshot(guide_id, step_id):
+    """Attach a repository screenshot to a step."""
+    data = request.json or {}
+    filename = data.get("filename", "")
+    caption = data.get("caption", "")
+    g = _load_guide(guide_id)
+    step = g.get_step(step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    # Read caption from meta if not provided
+    if not caption:
+        meta = _load_ss_meta()
+        caption = meta.get(filename, {}).get("caption", "")
+    from lab_guide_automator.models import StepScreenshot
+    step.screenshots.append(StepScreenshot(
+        path=f"screenshots/{filename}",
+        caption=caption,
+        timestamp_s=0.0,
+    ))
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in step.screenshots])
+
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/screenshots/<int:idx>", methods=["DELETE"])
+def api_step_delete_screenshot(guide_id, step_id, idx):
+    """Remove a screenshot from a step by index."""
+    g = _load_guide(guide_id)
+    step = g.get_step(step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    if idx < 0 or idx >= len(step.screenshots):
+        return jsonify({"error": "Index out of range"}), 400
+    step.screenshots.pop(idx)
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in step.screenshots])
+
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/screenshots/<int:idx>/caption", methods=["POST"])
+def api_step_screenshot_caption(guide_id, step_id, idx):
+    """Update the caption on a step's screenshot."""
+    data = request.json or {}
+    g = _load_guide(guide_id)
+    step = g.get_step(step_id)
+    if not step or idx >= len(step.screenshots):
+        return jsonify({"error": "Not found"}), 404
+    step.screenshots[idx].caption = data.get("caption", "")
+    g.touch()
+    _save_guide(g)
+    return jsonify(step.screenshots[idx].model_dump())
+
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/screenshots/reorder", methods=["POST"])
+def api_step_reorder_screenshots(guide_id, step_id):
+    """Reorder screenshots: body = {order: [0,2,1]} (new index order)."""
+    data = request.json or {}
+    order = data.get("order", [])
+    g = _load_guide(guide_id)
+    step = g.get_step(step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    shots = step.screenshots
+    if sorted(order) != list(range(len(shots))):
+        return jsonify({"error": "Invalid order"}), 400
+    step.screenshots = [shots[i] for i in order]
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in step.screenshots])
+
+
+# ── Section screenshot management ─────────────────────────────
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/screenshots", methods=["POST"])
+def api_section_add_screenshot(guide_id, section_id):
+    """Attach a repository screenshot to a section."""
+    data = request.json or {}
+    filename = data.get("filename", "")
+    caption = data.get("caption", "")
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Section not found"}), 404
+    if not caption:
+        meta = _load_ss_meta()
+        caption = meta.get(filename, {}).get("caption", "")
+    from lab_guide_automator.models import StepScreenshot
+    sec.screenshots.append(StepScreenshot(
+        path=f"screenshots/{filename}",
+        caption=caption,
+        timestamp_s=0.0,
+    ))
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in sec.screenshots])
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/screenshots/<int:idx>", methods=["DELETE"])
+def api_section_delete_screenshot(guide_id, section_id, idx):
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec or idx >= len(sec.screenshots):
+        return jsonify({"error": "Not found"}), 404
+    sec.screenshots.pop(idx)
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in sec.screenshots])
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/screenshots/<int:idx>/caption", methods=["POST"])
+def api_section_screenshot_caption(guide_id, section_id, idx):
+    data = request.json or {}
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec or idx >= len(sec.screenshots):
+        return jsonify({"error": "Not found"}), 404
+    sec.screenshots[idx].caption = data.get("caption", "")
+    g.touch()
+    _save_guide(g)
+    return jsonify(sec.screenshots[idx].model_dump())
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/screenshots/reorder", methods=["POST"])
+def api_section_reorder_screenshots(guide_id, section_id):
+    data = request.json or {}
+    order = data.get("order", [])
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Section not found"}), 404
+    shots = sec.screenshots
+    if sorted(order) != list(range(len(shots))):
+        return jsonify({"error": "Invalid order"}), 400
+    sec.screenshots = [shots[i] for i in order]
+    g.touch()
+    _save_guide(g)
+    return jsonify([s.model_dump() for s in sec.screenshots])
+
+
+# ── Section content blocks ────────────────────────────────────
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks", methods=["GET"])
+def api_section_blocks_get(guide_id, section_id):
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify([b.model_dump() for b in sec.blocks])
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks", methods=["POST"])
+def api_section_block_add(guide_id, section_id):
+    """Add a text or screenshot block at a given position (or end)."""
+    data = request.json or {}
+    block_type = data.get("type", "text")
+    after_id = data.get("after_id")   # insert after this block id; None = append
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    from lab_guide_automator.models import ContentBlock
+    block = ContentBlock(
+        type=block_type,
+        content=data.get("content", ""),
+        path=data.get("path", ""),
+        caption=data.get("caption", ""),
+    )
+    if after_id:
+        idx = next((i for i, b in enumerate(sec.blocks) if b.id == after_id), None)
+        if idx is not None:
+            sec.blocks.insert(idx + 1, block)
+        else:
+            sec.blocks.append(block)
+    else:
+        sec.blocks.append(block)
+    g.touch()
+    _save_guide(g)
+    return jsonify(block.model_dump())
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks/<block_id>", methods=["POST"])
+def api_section_block_update(guide_id, section_id, block_id):
+    """Update content or caption of a block."""
+    data = request.json or {}
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    block = next((b for b in sec.blocks if b.id == block_id), None)
+    if not block:
+        return jsonify({"error": "Block not found"}), 404
+    if "content" in data:
+        block.content = data["content"]
+    if "caption" in data:
+        block.caption = data["caption"]
+    g.touch()
+    _save_guide(g)
+    return jsonify(block.model_dump())
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks/<block_id>", methods=["DELETE"])
+def api_section_block_delete(guide_id, section_id, block_id):
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    sec.blocks = [b for b in sec.blocks if b.id != block_id]
+    g.touch()
+    _save_guide(g)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks/reorder", methods=["POST"])
+def api_section_blocks_reorder(guide_id, section_id):
+    """Reorder blocks: body = {order: ['id1','id2',...]}"""
+    data = request.json or {}
+    order = data.get("order", [])
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    id_to_block = {b.id: b for b in sec.blocks}
+    sec.blocks = [id_to_block[bid] for bid in order if bid in id_to_block]
+    g.touch()
+    _save_guide(g)
+    return jsonify([b.model_dump() for b in sec.blocks])
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/blocks/<block_id>/attach-screenshot", methods=["POST"])
+def api_section_block_attach_screenshot(guide_id, section_id, block_id):
+    """Attach a repository screenshot to an existing screenshot block."""
+    data = request.json or {}
+    filename = data.get("filename", "")
+    caption = data.get("caption", "")
+    if not caption:
+        meta = _load_ss_meta()
+        caption = meta.get(filename, {}).get("caption", "")
+    g = _load_guide(guide_id)
+    sec = g.get_section(section_id)
+    if not sec:
+        return jsonify({"error": "Not found"}), 404
+    block = next((b for b in sec.blocks if b.id == block_id), None)
+    if not block:
+        return jsonify({"error": "Block not found"}), 404
+    block.path = f"screenshots/{filename}"
+    block.caption = caption
+    g.touch()
+    _save_guide(g)
+    return jsonify(block.model_dump())
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Ingestion with SSE progress
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/upload/video", methods=["POST"])
+def api_upload_video():
+    """Accept a video file upload, save it, return the saved path."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    upload_dir = _data_dir() / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^\w\-.]", "_", f.filename)
+    dest = upload_dir / safe_name
+    f.save(str(dest))
+    return jsonify({"path": str(dest), "filename": safe_name, "size": dest.stat().st_size})
+
+
+@app.route("/api/upload/document", methods=["POST"])
+def api_upload_document():
+    """Accept a document file upload (PDF/DOCX/MD/HTML), save it, return path."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    upload_dir = _data_dir() / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^\w\-.]", "_", f.filename)
+    dest = upload_dir / safe_name
+    f.save(str(dest))
+    return jsonify({"path": str(dest), "filename": safe_name, "size": dest.stat().st_size})
+
+
+@app.route("/api/upload/screenshots", methods=["POST"])
+def api_upload_screenshots():
+    """
+    Accept multiple screenshot files, save them to a session folder, return folder path.
+    Expects multipart with multiple files under the key 'files'.
+    """
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "No files provided"}), 400
+    upload_dir = _data_dir() / "uploads" / f"screenshots_{uuid.uuid4().hex[:8]}"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for f in files:
+        if f.filename:
+            safe_name = re.sub(r"[^\w\-.]", "_", f.filename)
+            dest = upload_dir / safe_name
+            f.save(str(dest))
+            saved.append(safe_name)
+    return jsonify({"folder_path": str(upload_dir), "count": len(saved), "files": saved})
+
+
+@app.route("/api/ingest/video", methods=["POST"])
+def api_ingest_video():
+    data = request.json or {}
+    video_path = data.get("video_path", "")
+    lab_title = data.get("title", "Untitled Lab")
+    session_id = data.get("session_id") or str(uuid.uuid4())[:8]
+    interval = float(data.get("frame_interval", 5.0))
+
+    if not Path(video_path).exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+    q: queue.Queue = queue.Queue()
+    _progress_queues[job_id] = q
+
+    def run():
+        session_dir = _data_dir() / "sessions" / session_id
+        def progress(msg, *args):
+            q.put({"type": "progress", "message": str(msg)})
+
+        try:
+            q.put({"type": "progress", "message": "Starting ingestion..."})
+            guide = _run_async(ingest.ingest_recording(
+                settings, Path(video_path), lab_title, session_dir,
+                frame_interval_s=interval,
+                progress_callback=progress,
+            ))
+            _save_guide(guide)
+            q.put({"type": "done", "guide_id": guide.id, "title": guide.metadata.title,
+                   "sections": len(guide.sections), "steps": guide.step_count()})
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+        finally:
+            q.put(None)  # sentinel
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/ingest/screenshots", methods=["POST"])
+def api_ingest_screenshots():
+    data = request.json or {}
+    folder = data.get("folder_path", "")
+    lab_title = data.get("title", "Untitled Lab")
+    session_id = data.get("session_id") or str(uuid.uuid4())[:8]
+
+    if not Path(folder).is_dir():
+        return jsonify({"error": f"Not a directory: {folder}"}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+    q: queue.Queue = queue.Queue()
+    _progress_queues[job_id] = q
+
+    screenshots = sorted(
+        list(Path(folder).glob("*.png")) +
+        list(Path(folder).glob("*.jpg")) +
+        list(Path(folder).glob("*.jpeg"))
+    )
+
+    def run():
+        session_dir = _data_dir() / "sessions" / session_id
+        def progress(msg, *args):
+            q.put({"type": "progress", "message": str(msg)})
+        try:
+            q.put({"type": "progress", "message": f"Processing {len(screenshots)} screenshots..."})
+            guide = _run_async(ingest.ingest_screenshots(
+                settings, screenshots, lab_title, session_dir,
+                progress_callback=progress,
+            ))
+            _save_guide(guide)
+            q.put({"type": "done", "guide_id": guide.id, "title": guide.metadata.title,
+                   "sections": len(guide.sections), "steps": guide.step_count()})
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/ingest/document", methods=["POST"])
+def api_ingest_document():
+    """Ingest an existing lab guide document (PDF, DOCX, MD, HTML)."""
+    data = request.json or {}
+    doc_path = data.get("document_path", "").strip()
+    session_id = data.get("session_id") or str(uuid.uuid4())[:8]
+
+    if not doc_path:
+        return jsonify({"error": "document_path is required"}), 400
+    p = Path(doc_path)
+    if not p.exists():
+        return jsonify({"error": f"File not found: {doc_path}"}), 400
+
+    allowed = {".pdf", ".docx", ".md", ".markdown", ".html", ".htm", ".txt"}
+    if p.suffix.lower() not in allowed:
+        return jsonify({"error": f"Unsupported format: {p.suffix}. Supported: PDF, DOCX, MD, HTML, TXT"}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+    q: queue.Queue = queue.Queue()
+    _progress_queues[job_id] = q
+
+    def run():
+        from lab_guide_automator.ingest_document import ingest_document
+        session_dir = _data_dir() / "sessions" / session_id
+
+        def progress(msg, *args):
+            q.put({"type": "progress", "message": str(msg)})
+
+        try:
+            guide = _run_async(ingest_document(settings, p, session_dir, progress))
+            _save_guide(guide)
+            q.put({"type": "done", "guide_id": guide.id, "title": guide.metadata.title,
+                   "sections": len(guide.sections), "steps": guide.step_count()})
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/ingest/progress/<job_id>")
+def api_ingest_progress(job_id):
+    """SSE stream for ingestion progress."""
+    q = _progress_queues.get(job_id)
+    if not q:
+        return jsonify({"error": "Job not found"}), 404
+
+    @stream_with_context
+    def generate():
+        while True:
+            try:
+                event = q.get(timeout=30)
+                if event is None:
+                    yield _sse_event({"type": "end"})
+                    break
+                yield _sse_event(event)
+                if event.get("type") in ("done", "error"):
+                    yield _sse_event({"type": "end"})
+                    break
+            except queue.Empty:
+                yield _sse_event({"type": "ping"})
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Export
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/guides/<guide_id>/export/<fmt>", methods=["POST"])
+def api_export(guide_id, fmt):
+    try:
+        g = _load_guide(guide_id)
+        exports_dir = _data_dir() / "exports"
+        exports_dir.mkdir(exist_ok=True)
+
+        if fmt == "markdown":
+            p = exports_dir / f"{guide_id}.md"
+            export_markdown(g, p)
+        elif fmt == "pdf":
+            p = exports_dir / f"{guide_id}.pdf"
+            export_pdf(g, p)
+        elif fmt == "html":
+            p = exports_dir / f"{guide_id}.html"
+            export_html(g, p, embed_screenshots=True)
+        elif fmt == "docx":
+            p = exports_dir / f"{guide_id}.docx"
+            export_docx(g, p)
+        elif fmt == "mkdocs":
+            p = exports_dir / f"{guide_id}-mkdocs"
+            export_mkdocs(g, p)
+        else:
+            return jsonify({"error": f"Unknown format: {fmt}"}), 400
+
+        return jsonify({"path": str(p), "format": fmt})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/export/<fmt>/download")
+def api_download(guide_id, fmt):
+    """Download an already-exported file."""
+    ext = {"markdown": "md", "pdf": "pdf", "html": "html", "docx": "docx"}.get(fmt)
+    if not ext:
+        return jsonify({"error": "Unknown format"}), 400
+    exports_dir = _data_dir() / "exports"
+    filename = f"{guide_id}.{ext}"
+    return send_from_directory(exports_dir, filename, as_attachment=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# Markdown preview
+# ─────────────────────────────────────────────────────────────
+
+def _preview_html(g) -> str:
+    """Render a full in-dashboard HTML preview with live screenshot URLs."""
+    import markdown as md_lib
+    import os
+
+    def _md(text: str) -> str:
+        if not text:
+            return ""
+        return md_lib.markdown(text.strip(), extensions=["tables", "fenced_code", "nl2br"])
+
+    def _img(path: str, caption: str = "") -> str:
+        fname = os.path.basename(path)
+        cap_attr = caption.replace('"', '&quot;')
+        cap_html = f'<p class="prev-caption">{caption}</p>' if caption else ""
+        return (
+            f'<figure class="prev-figure">'
+            f'<img src="/api/screenshots/file/{fname}" alt="{cap_attr}" '
+            f'onerror="this.closest(\'figure\').style.display=\'none\'">'
+            f'{cap_html}</figure>'
+        )
+
+    parts = []
+
+    # ── Title / meta ──────────────────────────────────────────
+    m = g.metadata
+    parts.append(f'<h1>{m.title}</h1>')
+    if m.subtitle:
+        parts.append(f'<p style="font-size:1.05rem;color:#005073;margin-top:-.5rem">{m.subtitle}</p>')
+    meta_bits = []
+    if m.author:
+        meta_bits.append(f"Author: {m.author}")
+    if m.version:
+        meta_bits.append(f"v{m.version}")
+    if m.tags:
+        tags = " ".join(f'<span class="prev-tag">{t}</span>' for t in m.tags)
+        meta_bits.append(tags)
+    if meta_bits:
+        parts.append(f'<p class="prev-meta">{" &nbsp;·&nbsp; ".join(meta_bits)}</p>')
+
+    if g.introduction:
+        parts.append('<h2>Introduction</h2>')
+        parts.append(_md(g.introduction))
+
+    if g.learning_objectives:
+        parts.append('<h2>Learning Objectives</h2><ul>')
+        for obj in g.learning_objectives:
+            parts.append(f'<li>{obj.text}</li>')
+        parts.append('</ul>')
+
+    # ── Sections ──────────────────────────────────────────────
+    for sec in g.sections:
+        parts.append(f'<h2>{sec.title}</h2>')
+        if sec.overview:
+            parts.append(_md(sec.overview))
+
+        blocks = getattr(sec, "blocks", []) or []
+        for blk in blocks:
+            if blk.type == "text":
+                parts.append(_md(blk.content or ""))
+            elif blk.type == "screenshot" and blk.path:
+                parts.append(_img(blk.path, blk.caption or ""))
+
+        if not blocks:
+            for ss in getattr(sec, "screenshots", []):
+                parts.append(_img(ss.path, ss.caption or ""))
+
+        # Steps — numbered per section
+        for i, step in enumerate(sec.steps, 1):
+            parts.append(
+                f'<div class="prev-step">'
+                f'<h3><span class="prev-step-num">{i}</span> {step.title}</h3>'
+            )
+            parts.append(_md(step.instruction))
+
+            if step.code_blocks:
+                for cb in step.code_blocks:
+                    parts.append(f'<pre><code>{cb}</code></pre>')
+
+            for ss in step.screenshots:
+                parts.append(_img(ss.path, ss.caption or ""))
+
+            if step.expected_result:
+                parts.append(
+                    f'<div class="prev-expected">'
+                    f'<strong>Expected Result:</strong> {step.expected_result}'
+                    f'</div>'
+                )
+            if step.notes:
+                parts.append(
+                    f'<div class="prev-note"><strong>Note:</strong> {step.notes}</div>'
+                )
+            parts.append('</div>')
+
+    if g.conclusion:
+        parts.append('<h2>Conclusion</h2>')
+        parts.append(_md(g.conclusion))
+
+    return "\n".join(parts)
+
+
+@app.route("/api/guides/<guide_id>/preview")
+def api_preview(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        return jsonify({"html": _preview_html(g)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────
+# HTML — Single-page app
+# ─────────────────────────────────────────────────────────────
+
+def _render_html() -> str:
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab Guide Automator</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1e2530;
+    --border: #30363d; --text: #c9d1d9; --text2: #8b949e;
+    --accent: #00bceb; --accent2: #0075a2; --green: #3fb950;
+    --red: #f85149; --yellow: #d29922; --purple: #a371f7;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── Top nav ── */
+  .topnav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 1.5rem; height: 52px; display: flex; align-items: center; gap: 1.5rem; flex-shrink: 0; }
+  .topnav .logo { color: var(--accent); font-weight: 700; font-size: 1rem; letter-spacing: .02em; white-space: nowrap; }
+  .nav-tabs { display: flex; gap: 0; }
+  .nav-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text2); cursor: pointer; padding: .6rem 1rem; font-size: .85rem; transition: color .15s, border-color .15s; }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .topnav-right { margin-left: auto; display: flex; align-items: center; gap: .75rem; }
+  .pill { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: .25rem .75rem; font-size: .78rem; color: var(--text2); }
+  .pill.green { background: #1a2e1a; border-color: var(--green); color: var(--green); }
+
+  /* ── Layout ── */
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 280px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .content { flex: 1; overflow: auto; padding: 1.5rem; }
+
+  /* ── Sidebar ── */
+  .sidebar-header { padding: .75rem 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .sidebar-header span { font-size: .8rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .06em; }
+  .guide-list { overflow-y: auto; flex: 1; }
+  .guide-item { padding: .75rem 1rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; }
+  .guide-item:hover { background: var(--surface2); }
+  .guide-item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
+  .guide-item .gtitle { font-weight: 500; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .guide-item .gmeta { font-size: .75rem; color: var(--text2); margin-top: .2rem; }
+  .empty-state { padding: 2rem 1rem; text-align: center; color: var(--text2); font-size: .85rem; }
+
+  /* ── Buttons ── */
+  .btn { border: none; border-radius: var(--radius); cursor: pointer; font-size: .82rem; font-weight: 500; padding: .45rem .9rem; transition: opacity .15s, transform .1s; }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { opacity: .85; }
+  .btn-secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: #2d1616; border: 1px solid var(--red); color: var(--red); }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+  .btn-sm { padding: .3rem .6rem; font-size: .76rem; }
+  .btn-icon { background: none; border: none; cursor: pointer; color: var(--text2); padding: .25rem; border-radius: 4px; font-size: .9rem; }
+  .btn-icon:hover { color: var(--accent); background: var(--surface2); }
+  .btn-ai { background: linear-gradient(135deg, #0d3b6e, #1a1a4e); border: 1px solid var(--purple); color: var(--purple); }
+  .btn-ai:hover { background: linear-gradient(135deg, #1a4d8c, #2a2a6e); }
+  .btn-rec { background: #2d1616; border: 1px solid var(--red); color: var(--red); }
+  .btn-rec:hover { background: var(--red); color: #fff; }
+  .btn-rec.recording { background: var(--red); color: #fff; animation: pulse-rec 1s infinite; }
+  @keyframes pulse-rec { 0%,100%{opacity:1} 50%{opacity:.7} }
+
+  /* ── Cards ── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; }
+  .card-title { font-weight: 600; font-size: .95rem; margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem; }
+  .card-title .icon { font-size: 1.1rem; }
+
+  /* ── Tabs (inner) ── */
+  .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
+  .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text2); cursor: pointer; padding: .5rem 1rem; font-size: .82rem; transition: color .15s, border-color .15s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Forms ── */
+  .form-row { display: flex; gap: .75rem; align-items: flex-end; margin-bottom: .75rem; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 140px; }
+  .form-group label { font-size: .75rem; color: var(--text2); }
+  input, select, textarea { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: .85rem; padding: .45rem .7rem; width: 100%; transition: border-color .15s; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+
+  /* ── Guide editor ── */
+  .guide-header { margin-bottom: 1.25rem; }
+  .guide-title-row { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+  .guide-title-row h2 { font-size: 1.3rem; font-weight: 700; flex: 1; }
+  .badge { border-radius: 10px; font-size: .72rem; padding: .15rem .55rem; font-weight: 600; }
+  .badge-blue { background: #0d2a3b; border: 1px solid var(--accent); color: var(--accent); }
+  .badge-green { background: #1a2e1a; border: 1px solid var(--green); color: var(--green); }
+  .badge-yellow { background: #2d2600; border: 1px solid var(--yellow); color: var(--yellow); }
+  .meta-row { display: flex; gap: .75rem; flex-wrap: wrap; font-size: .78rem; color: var(--text2); }
+  .meta-row span { display: flex; align-items: center; gap: .3rem; }
+
+  /* ── Sections + Steps ── */
+  .section-block { margin-bottom: 1.5rem; }
+  .section-header { display: flex; align-items: center; gap: .5rem; padding: .6rem .75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: .5rem; cursor: pointer; }
+  .section-header:hover { border-color: var(--accent); }
+  .sec-drag-handle { color: var(--text2); cursor: grab; font-size: 1rem; padding: 0 .15rem; flex-shrink: 0; }
+  .sec-drag-handle:active { cursor: grabbing; }
+  .section-num { background: var(--accent2); color: var(--accent); border-radius: 4px; padding: 1px 7px; font-size: .75rem; font-weight: 700; flex-shrink: 0; }
+  .section-title { flex: 1; }
+  .sec-title-input { flex: 1; font-size: .92rem; font-weight: 600; background: var(--surface); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); padding: 2px 6px; outline: none; }
+  .section-count { font-size: .75rem; color: var(--text2); }
+  .section-block.sec-drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+  .sec-overview-row { display: flex; align-items: center; gap: .5rem; padding: .3rem .75rem; font-size: .8rem; color: var(--text2); border-bottom: 1px solid var(--border); min-height: 2rem; }
+  .sec-overview-text { flex: 1; font-style: italic; }
+  .steps-container { padding-left: 1rem; }
+  .step-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .85rem 1rem; margin-bottom: .5rem; transition: border-color .15s; }
+  .step-card:hover { border-color: var(--border); }
+  .step-card.editing { border-color: var(--accent); }
+  .step-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; }
+  .step-num { background: var(--accent2); color: var(--accent); border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: .72rem; font-weight: 700; flex-shrink: 0; }
+  .step-title-text { font-weight: 500; font-size: .88rem; flex: 1; }
+  .step-body { font-size: .83rem; color: var(--text2); line-height: 1.55; margin-bottom: .4rem; white-space: pre-wrap; }
+  .expected { background: #1a2e1a; border-left: 3px solid var(--green); padding: .35rem .6rem; border-radius: 0 4px 4px 0; font-size: .78rem; color: #7ee787; margin-top: .4rem; }
+
+  /* ── Step screenshot panel ── */
+  .step-screenshots { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .6rem; }
+  .step-screenshots-label { font-size: .75rem; font-weight: 600; color: var(--text2); margin-bottom: .4rem; display: flex; align-items: center; gap: .5rem; }
+  .ss-thumb-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .4rem; }
+  .ss-thumb { position: relative; width: 110px; cursor: pointer; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); background: var(--surface2); flex-shrink: 0; }
+  .ss-thumb img { width: 110px; height: 72px; object-fit: cover; display: block; }
+  .ss-thumb-caption { font-size: .65rem; color: var(--text2); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ss-thumb-actions { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; }
+  .ss-thumb-btn { background: rgba(0,0,0,.7); color: #fff; border: none; border-radius: 3px; font-size: .65rem; padding: 1px 4px; cursor: pointer; line-height: 1.4; }
+  .ss-thumb-btn:hover { background: var(--accent); }
+  .ss-thumb.drag-over { border-color: var(--accent); }
+
+  /* ── Section content blocks ── */
+  .block-list { display: flex; flex-direction: column; gap: 0; margin: .5rem .75rem .25rem; }
+  .block-item { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); margin-bottom: .4rem; }
+  .block-item.block-text { }
+  .block-item.block-screenshot { display: flex; align-items: flex-start; gap: .75rem; padding: .6rem; }
+  .block-text-body { padding: .5rem .75rem; font-size: .83rem; color: var(--text2); white-space: pre-wrap; line-height: 1.55; cursor: pointer; min-height: 2rem; }
+  .block-text-body:hover { background: var(--surface2); border-radius: 5px; }
+  .block-text-edit { display: none; padding: .5rem .75rem; }
+  .block-text-edit textarea { width: 100%; box-sizing: border-box; min-height: 80px; resize: vertical; }
+  .block-ss-thumb { width: 160px; flex-shrink: 0; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; }
+  .block-ss-thumb img { width: 160px; height: 100px; object-fit: cover; display: block; }
+  .block-ss-caption { font-size: .72rem; color: var(--text2); padding: 2px 5px; }
+  .block-ss-meta { flex: 1; display: flex; flex-direction: column; gap: .35rem; }
+  .block-ss-cap-input { font-size: .8rem; width: 100%; box-sizing: border-box; }
+  .block-actions { display: flex; gap: .3rem; align-items: center; flex-wrap: wrap; }
+  .block-divider { display: flex; align-items: center; gap: .4rem; margin: .15rem 0; }
+  .block-divider-line { flex: 1; height: 1px; background: var(--border); }
+  .block-add-btn { font-size: .7rem; padding: 2px 8px; white-space: nowrap; opacity: .7; }
+  .block-add-btn:hover { opacity: 1; }
+  .block-drag-handle { cursor: grab; color: var(--text2); font-size: .9rem; padding: 0 4px; user-select: none; }
+
+  /* ── Screenshot Repository modal ── */
+  .repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: .75rem; max-height: 55vh; overflow-y: auto; padding-right: 4px; }
+  .repo-thumb { border: 2px solid var(--border); border-radius: 6px; overflow: hidden; cursor: pointer; background: var(--surface2); transition: border-color .15s; position: relative; }
+  .repo-thumb:hover, .repo-thumb.selected { border-color: var(--accent); }
+  .repo-thumb img { width: 100%; height: 90px; object-fit: cover; display: block; }
+  .repo-thumb-cap { font-size: .68rem; padding: 4px 6px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--surface); }
+  .repo-thumb-actions { position: absolute; top: 3px; right: 3px; display: none; gap: 2px; }
+  .repo-thumb:hover .repo-thumb-actions { display: flex; }
+  .repo-ai-badge { position: absolute; top: 3px; left: 3px; background: rgba(0,0,0,.7); color: #00bdeb; font-size: .6rem; padding: 1px 4px; border-radius: 3px; }
+  .repo-filter { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+  .repo-filter input { flex: 1; }
+
+  /* ── Objectives ── */
+  .obj-list { display: flex; flex-direction: column; gap: .4rem; }
+  .obj-item { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .75rem; background: var(--surface2); border-radius: 6px; border: 1px solid var(--border); }
+  .bloom-badge { font-size: .68rem; padding: .1rem .4rem; border-radius: 8px; flex-shrink: 0; margin-top: 1px; font-weight: 600; text-transform: uppercase; }
+  .bloom-apply { background: #0d3b2b; color: #3fb950; border: 1px solid #3fb950; }
+  .bloom-understand { background: #0d2a3b; color: var(--accent); border: 1px solid var(--accent); }
+  .bloom-analyze { background: #2d2600; color: var(--yellow); border: 1px solid var(--yellow); }
+  .bloom-create { background: #2d1650; color: var(--purple); border: 1px solid var(--purple); }
+  .bloom-evaluate { background: #2d1616; color: var(--red); border: 1px solid var(--red); }
+  .bloom-remember { background: #1e2530; color: var(--text2); border: 1px solid var(--border); }
+
+  /* ── Export panel ── */
+  .export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .75rem; }
+  .export-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; text-align: center; cursor: pointer; transition: border-color .15s, transform .1s; }
+  .export-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .export-card .export-icon { font-size: 2rem; margin-bottom: .5rem; }
+  .export-card .export-label { font-size: .82rem; font-weight: 600; }
+  .export-card .export-desc { font-size: .72rem; color: var(--text2); margin-top: .2rem; }
+  .export-card.loading { opacity: .6; pointer-events: none; }
+
+  /* ── Record panel ── */
+  .record-status { display: flex; align-items: center; gap: .75rem; padding: .75rem; background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: .75rem; }
+  .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text2); flex-shrink: 0; }
+  .rec-dot.active { background: var(--red); animation: pulse-rec 1s infinite; }
+
+  /* ── Progress / logs ── */
+  .progress-box { background: #0a0e13; border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; font-family: monospace; font-size: .78rem; color: var(--green); min-height: 120px; max-height: 260px; overflow-y: auto; }
+  .progress-line { margin-bottom: .2rem; }
+  .progress-line.error { color: var(--red); }
+  .progress-line.done { color: var(--accent); }
+  .drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 2rem 1.5rem; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; user-select: none; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(0,168,255,.06); }
+  .drop-icon { font-size: 2.2rem; line-height: 1; margin-bottom: .5rem; }
+  .drop-label { font-size: .92rem; color: var(--text); font-weight: 600; margin-bottom: .3rem; }
+  .drop-sub { font-size: .78rem; color: var(--text2); }
+  .drop-selected { font-size: .8rem; color: var(--accent); margin-top: .6rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Suggestions ── */
+  .suggestion-item { padding: .5rem .75rem; background: var(--surface2); border-left: 3px solid var(--yellow); border-radius: 0 6px 6px 0; font-size: .83rem; margin-bottom: .4rem; }
+
+  /* ── AI feedback modal ── */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; width: 520px; max-width: 95vw; }
+  .modal h3 { margin-bottom: 1rem; font-size: 1rem; }
+  .modal-footer { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
+
+  /* ── Preview pane ── */
+  .preview-pane { background: #fff; color: #1a1a1a; border-radius: var(--radius); padding: 2rem; font-family: 'Segoe UI', sans-serif; line-height: 1.7; }
+  .preview-pane h1 { color: #005073; border-bottom: 3px solid #00bceb; padding-bottom: .4rem; margin-bottom: 1rem; }
+  .preview-pane h2 { color: #005073; margin-top: 1.5rem; border-bottom: 1px solid #d0eaf5; padding-bottom: .3rem; }
+  .preview-pane h3 { color: #1f7a8c; margin-top: 1.2rem; }
+  .preview-pane blockquote { border-left: 4px solid #4caf50; background: #f0faf0; padding: .5rem 1rem; margin: .5rem 0; border-radius: 0 4px 4px 0; }
+  .preview-pane code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-family: monospace; }
+  .preview-pane pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+  .preview-pane p { margin: .6rem 0; }
+  .preview-pane ul, .preview-pane ol { padding-left: 1.5rem; margin: .5rem 0; }
+  .preview-pane .prev-meta { color: #666; font-size: .85rem; margin-bottom: 1.2rem; }
+  .preview-pane .prev-tag { background: #e8f7fc; color: #005073; border-radius: 4px; padding: 2px 7px; font-size: .78rem; margin: 0 2px; }
+  .preview-pane .prev-step { border-left: 4px solid #00bceb; padding: .5rem 1rem; margin: 1.2rem 0; background: #f8fdff; border-radius: 0 6px 6px 0; }
+  .preview-pane .prev-step h3 { display: flex; align-items: center; gap: .6rem; margin-top: .3rem; }
+  .preview-pane .prev-step-num { background: #00bceb; color: #fff; border-radius: 50%; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: .8rem; font-weight: 700; flex-shrink: 0; }
+  .preview-pane .prev-expected { background: #f0faf0; border-left: 4px solid #4caf50; padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; }
+  .preview-pane .prev-note { background: #fff8e1; border-left: 4px solid #ffc107; padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; }
+  .preview-pane .prev-figure { margin: 1rem 0; text-align: center; }
+  .preview-pane .prev-figure img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.08); cursor: zoom-in; }
+  .preview-pane .prev-caption { font-size: .8rem; color: #666; margin-top: .35rem; font-style: italic; }
+
+  /* ── Misc ── */
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+  .text-muted { color: var(--text2); }
+  .gap-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .section-collapsed .steps-container { display: none; }
+  #no-guide { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; color: var(--text2); text-align: center; }
+  #no-guide .big-icon { font-size: 4rem; }
+</style>
+</head>
+<body>
+
+<!-- Top nav -->
+<div class="topnav">
+  <div class="logo">📋 Lab Guide Automator</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showMainTab('guides')">Guides</button>
+    <button class="nav-tab" onclick="showMainTab('record')">Record</button>
+    <button class="nav-tab" onclick="showMainTab('ingest')">Ingest</button>
+  </div>
+  <div class="topnav-right">
+    <span class="pill green" id="ai-status">✓ Copilot AI</span>
+    <span class="pill" id="guide-count">0 guides</span>
+  </div>
+</div>
+
+<!-- Main layout -->
+<div class="main">
+
+  <!-- Sidebar: guide library -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>Library</span>
+      <button class="btn btn-primary btn-sm" onclick="openNewGuideModal()">+ New</button>
+    </div>
+    <div class="guide-list" id="guide-list">
+      <div class="empty-state">No guides yet.<br>Record or ingest to get started.</div>
+    </div>
+  </div>
+
+  <!-- Content area -->
+  <div class="content">
+
+    <!-- TAB: Guides (editor) -->
+    <div id="tab-guides">
+      <div id="no-guide">
+        <div class="big-icon">📄</div>
+        <div><strong>Select a guide</strong> from the library<br>or create a new one to get started.</div>
+        <button class="btn btn-primary" onclick="openNewGuideModal()">Create Blank Guide</button>
+      </div>
+      <div id="guide-editor" style="display:none">
+
+        <!-- Guide header -->
+        <div class="guide-header card">
+          <div class="guide-title-row">
+            <h2 id="ed-title">—</h2>
+            <span class="badge badge-blue" id="ed-version">v1.0</span>
+            <span class="badge badge-yellow" id="ed-difficulty">Intermediate</span>
+            <button class="btn btn-secondary btn-sm" onclick="openMetaModal()">Edit Info</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteCurrentGuide()">Delete</button>
+          </div>
+          <div class="meta-row">
+            <span>👤 <span id="ed-author">—</span></span>
+            <span>⏱ <span id="ed-duration">60</span> min</span>
+            <span>📅 <span id="ed-date">—</span></span>
+            <span id="ed-tags"></span>
+          </div>
+        </div>
+
+        <!-- Inner tabs -->
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="showEditorTab('content')">Content</button>
+          <button class="tab-btn" onclick="showEditorTab('objectives')">Objectives</button>
+          <button class="tab-btn" onclick="showEditorTab('preview')">Preview</button>
+          <button class="tab-btn" onclick="showEditorTab('export')">Export</button>
+          <button class="tab-btn" onclick="showEditorTab('ai')">AI Tools</button>
+        </div>
+
+        <!-- Content tab -->
+        <div class="tab-panel active" id="epanel-content">
+          <div class="card">
+            <div class="card-title"><span class="icon">📖</span> Introduction
+              <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="editIntro()">Edit</button>
+              <button class="btn btn-ai btn-sm" onclick="rewriteIntro()">✦ AI</button>
+            </div>
+            <div id="ed-intro" class="step-body" style="margin-bottom:.5rem;white-space:pre-wrap"></div>
+            <div id="ed-intro-edit" style="display:none">
+              <textarea id="ed-intro-ta" rows="4" style="width:100%;margin-bottom:.4rem"></textarea>
+              <div class="gap-row">
+                <button class="btn btn-primary btn-sm" onclick="saveIntro()">Save</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelIntro()">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:.6rem;display:flex;gap:.5rem;align-items:center">
+            <strong style="font-size:.85rem;color:var(--text2)">SECTIONS</strong>
+            <button class="btn btn-primary btn-sm" onclick="addSection()" style="margin-left:auto">+ Add Section</button>
+          </div>
+          <div id="ed-sections"></div>
+
+          <div class="card" style="margin-top:.75rem">
+            <div class="card-title"><span class="icon">🏁</span> Conclusion
+              <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="editConclusion()">Edit</button>
+              <button class="btn btn-ai btn-sm" onclick="rewriteConclusion()">✦ AI</button>
+            </div>
+            <div id="ed-conclusion" class="step-body" style="margin-bottom:.5rem;white-space:pre-wrap"></div>
+            <div id="ed-conclusion-edit" style="display:none">
+              <textarea id="ed-conclusion-ta" rows="4" style="width:100%;margin-bottom:.4rem"></textarea>
+              <div class="gap-row">
+                <button class="btn btn-primary btn-sm" onclick="saveConclusion()">Save</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelConclusion()">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Objectives tab -->
+        <div class="tab-panel" id="epanel-objectives">
+          <div class="card">
+            <div class="card-title"><span class="icon">🎯</span> Learning Objectives</div>
+            <div class="obj-list" id="ed-objectives"></div>
+            <hr class="divider">
+            <div class="form-row" style="margin-bottom:0">
+              <div class="form-group">
+                <label>Describe a new objective (plain English)</label>
+                <input type="text" id="new-obj-input" placeholder="e.g. Students should be able to verify OSPF neighbor adjacency">
+              </div>
+              <button class="btn btn-ai" onclick="addObjective()">✦ Add Objective</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview tab -->
+        <div class="tab-panel" id="epanel-preview">
+          <div class="preview-pane" id="ed-preview">Loading preview...</div>
+        </div>
+
+        <!-- Export tab -->
+         <div class="tab-panel" id="epanel-export">
+           <div class="card">
+             <div class="card-title"><span class="icon">📤</span> Export Guide</div>
+             <div class="export-grid">
+               <div class="export-card" onclick="exportGuide('markdown')">
+                 <div class="export-icon">📝</div>
+                 <div class="export-label">Markdown</div>
+                 <div class="export-desc">.md file</div>
+               </div>
+               <div class="export-card" onclick="exportGuide('pdf')">
+                 <div class="export-icon">📕</div>
+                 <div class="export-label">PDF</div>
+                 <div class="export-desc">Print-ready</div>
+               </div>
+               <div class="export-card" onclick="exportGuide('html')">
+                 <div class="export-icon">🌐</div>
+                 <div class="export-label">HTML</div>
+                 <div class="export-desc">Moodle-ready</div>
+               </div>
+               <div class="export-card" onclick="exportGuide('docx')">
+                 <div class="export-icon">📘</div>
+                 <div class="export-label">Word</div>
+                 <div class="export-desc">.docx</div>
+               </div>
+               <div class="export-card" onclick="exportGuide('mkdocs')">
+                 <div class="export-icon">🏗️</div>
+                 <div class="export-label">MkDocs Site</div>
+                 <div class="export-desc">Material theme</div>
+               </div>
+             </div>
+             <div id="export-log" class="progress-box" style="margin-top:1rem;min-height:60px;display:none"></div>
+           </div>
+
+           <!-- GitHub Sync / Publish card -->
+           <div class="card" style="border-color:#238636;background:linear-gradient(135deg,#0d1f14,#161b22)">
+             <div class="card-title"><span class="icon">🐙</span> Publish to GitHub
+               <span id="pub-last" style="margin-left:auto;font-size:.73rem;color:var(--text2);font-weight:400"></span>
+             </div>
+             <div style="font-size:.8rem;color:var(--text2);margin-bottom:.9rem;line-height:1.6">
+               Builds the MkDocs site and pushes to your GitHub repo. If the repo is connected to
+               AWS Amplify / GitHub Pages, it will publish automatically on push.
+             </div>
+             <div class="form-row" style="gap:.75rem">
+               <div class="form-group" style="flex:3">
+                 <label>GitHub repo URL</label>
+                 <input type="text" id="pub-repo" placeholder="https://github.com/org/repo.git"
+                   style="font-family:monospace;font-size:.82rem">
+               </div>
+               <div class="form-group" style="flex:1;min-width:110px">
+                 <label>Branch</label>
+                 <input type="text" id="pub-branch" value="main" placeholder="main">
+               </div>
+             </div>
+             <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+               <button class="btn" style="background:#238636;color:#fff;border-color:#238636"
+                 onclick="saveAndPublish()">🚀 Save &amp; Publish</button>
+               <button class="btn btn-secondary" onclick="saveSyncConfig()">💾 Save Config Only</button>
+               <span id="pub-config-status" style="font-size:.75rem;color:var(--text2)"></span>
+             </div>
+             <div id="pub-log" class="progress-box" style="margin-top:1rem;display:none"></div>
+           </div>
+         </div>
+              <div class="export-card" onclick="exportGuide('pdf')">
+                <div class="export-icon">📕</div>
+                <div class="export-label">PDF</div>
+                <div class="export-desc">Print-ready</div>
+              </div>
+              <div class="export-card" onclick="exportGuide('html')">
+                <div class="export-icon">🌐</div>
+                <div class="export-label">HTML</div>
+                <div class="export-desc">Moodle-ready</div>
+              </div>
+              <div class="export-card" onclick="exportGuide('docx')">
+                <div class="export-icon">📘</div>
+                <div class="export-label">Word</div>
+                <div class="export-desc">.docx</div>
+              </div>
+              <div class="export-card" onclick="exportGuide('mkdocs')">
+                <div class="export-icon">🏗️</div>
+                <div class="export-label">MkDocs Site</div>
+                <div class="export-desc">Material theme</div>
+              </div>
+            </div>
+            <div id="export-log" class="progress-box" style="margin-top:1rem;min-height:60px;display:none"></div>
+          </div>
+        </div>
+
+        <!-- AI Tools tab -->
+        <div class="tab-panel" id="epanel-ai">
+
+          <!-- Model selector -->
+          <div class="card" style="margin-bottom:1rem">
+            <div class="card-title"><span class="icon">🤖</span> AI Model</div>
+            <div style="font-size:.8rem;color:var(--text2);margin-bottom:.75rem">
+              All models run via your GitHub Copilot access — no extra API key needed.
+            </div>
+            <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+              <select id="model-select" style="flex:1;min-width:220px" onchange="setModel(this.value)">
+                <option value="">Loading models…</option>
+              </select>
+              <span id="model-tip" style="font-size:.75rem;display:none;padding:.3rem .65rem;border-radius:20px;background:rgba(0,188,235,.12);border:1px solid var(--accent);color:var(--accent);white-space:nowrap"></span>
+            </div>
+            <div id="model-status" style="font-size:.75rem;color:var(--text2);margin-top:.5rem"></div>
+          </div>
+
+          <!-- AI Review -->
+          <div class="card">
+            <div class="card-title"><span class="icon">✦</span> AI Review</div>
+            <p class="text-muted" style="margin-bottom:.75rem;font-size:.83rem">Ask the AI to review the entire guide and suggest improvements.</p>
+            <button class="btn btn-ai" onclick="suggestImprovements()">✦ Suggest Improvements</button>
+            <div id="suggestion-list" style="margin-top:1rem"></div>
+          </div>
+        </div>
+
+      </div><!-- /guide-editor -->
+    </div><!-- /tab-guides -->
+
+    <!-- TAB: Record -->
+    <div id="tab-record" style="display:none">
+      <div class="card">
+        <div class="card-title"><span class="icon">🖥️</span> Screen Recording</div>
+
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:.82rem;color:var(--text2);line-height:1.6">
+          <strong style="color:var(--text)">What gets recorded:</strong><br>
+          ✅ &nbsp;Your <strong>screen</strong> (all displays / the active window)<br>
+          ✅ &nbsp;<strong>Cursor</strong> movements and clicks<br>
+          ❌ &nbsp;<strong>No webcam</strong> — your face is never captured<br>
+          🎙️ &nbsp;<strong>Microphone</strong> (optional — toggle below) — useful for narration
+        </div>
+
+        <div class="record-status">
+          <div class="rec-dot" id="rec-dot"></div>
+          <span id="rec-status-text">Not recording</span>
+          <span id="rec-timer" style="margin-left:auto;font-family:monospace;color:var(--text2)">00:00</span>
+        </div>
+
+        <div class="form-row" style="margin-bottom:.75rem">
+          <label style="display:flex;align-items:center;gap:.6rem;font-size:.83rem;cursor:pointer;padding:.5rem .75rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;flex:0 0 auto">
+            <input type="checkbox" id="rec-audio" checked style="width:auto;accent-color:var(--accent)">
+            <span>🎙️ Record microphone audio <span style="color:var(--text2)">(for narration — recommended)</span></span>
+          </label>
+        </div>
+
+        <div class="gap-row">
+          <button class="btn btn-rec" id="rec-start-btn" onclick="startRecording()">⏺ Start Recording</button>
+          <button class="btn btn-secondary" id="rec-stop-btn" disabled onclick="stopRecording()">⏹ Stop</button>
+          <button class="btn btn-secondary" id="rec-screenshot-btn" disabled onclick="takeScreenshot()">📸 Screenshot</button>
+        </div>
+        <div style="margin-top:.5rem;font-size:.75rem;color:var(--text2)">
+          Click <strong>Screenshot</strong> at each key step — screenshots are auto-tagged <code>step-001</code>, <code>step-002</code>, … in sequence and attached to guide steps during ingestion.
+        </div>
+        <div id="rec-result" style="margin-top:1rem;display:none" class="progress-box"></div>
+      </div>
+
+      <div class="card" id="rec-ingest-card" style="display:none">
+        <div class="card-title"><span class="icon">⚡</span> Ingest This Recording</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Lab title</label>
+            <input type="text" id="rec-ingest-title" placeholder="e.g. OSPF Configuration Lab">
+          </div>
+          <button class="btn btn-primary" onclick="ingestLastRecording()">Ingest & Draft Guide</button>
+        </div>
+      </div>
+    </div><!-- /tab-record -->
+
+    <!-- TAB: Ingest -->
+    <div id="tab-ingest" style="display:none">
+
+      <!-- Import existing document -->
+      <div class="card" style="border-color:var(--accent);background:linear-gradient(135deg,#0d1f2d,#161b22)">
+        <div class="card-title"><span class="icon">📄</span> Import Existing Lab Guide</div>
+        <div style="font-size:.82rem;color:var(--text2);margin-bottom:.9rem;line-height:1.6">
+          Browse to an existing lab guide — AI will extract sections, steps, objectives and structure automatically.<br>
+          <strong style="color:var(--text)">Supported:</strong>
+          <span class="badge badge-blue" style="margin:0 .2rem">PDF</span>
+          <span class="badge badge-blue" style="margin:0 .2rem">Word (.docx)</span>
+          <span class="badge badge-blue" style="margin:0 .2rem">Markdown (.md)</span>
+          <span class="badge badge-blue" style="margin:0 .2rem">HTML</span>
+          <span class="badge badge-blue" style="margin:0 .2rem">Plain text</span>
+        </div>
+        <div class="drop-zone" id="doc-drop-zone" onclick="document.getElementById('doc-file-input').click()" ondragover="onDragOver(event,'doc-drop-zone')" ondragleave="onDragLeave('doc-drop-zone')" ondrop="onDropDoc(event)">
+          <div class="drop-icon">📄</div>
+          <div class="drop-label">Click to browse or drag & drop your lab guide here</div>
+          <div class="drop-sub">PDF, Word, Markdown, HTML, or plain text</div>
+          <div class="drop-selected" id="doc-selected"></div>
+        </div>
+        <input type="file" id="doc-file-input" style="display:none" accept=".pdf,.docx,.md,.markdown,.html,.htm,.txt" onchange="onDocFileSelected(this)">
+        <div style="margin-top:.75rem">
+          <button class="btn btn-primary" id="doc-ingest-btn" onclick="ingestDocument()" disabled>📄 Import & Parse Document</button>
+        </div>
+      </div>
+
+      <!-- Ingest video recording -->
+      <div class="card">
+        <div class="card-title"><span class="icon">⚡</span> Ingest Screen Recording</div>
+        <div class="drop-zone" id="video-drop-zone" onclick="document.getElementById('video-file-input').click()" ondragover="onDragOver(event,'video-drop-zone')" ondragleave="onDragLeave('video-drop-zone')" ondrop="onDropVideo(event)">
+          <div class="drop-icon">🎬</div>
+          <div class="drop-label">Click to browse or drag & drop your recording</div>
+          <div class="drop-sub">.mp4, .mov, .mkv</div>
+          <div class="drop-selected" id="video-selected"></div>
+        </div>
+        <input type="file" id="video-file-input" style="display:none" accept=".mp4,.mov,.mkv,.avi,.webm" onchange="onVideoFileSelected(this)">
+        <div class="form-row" style="margin-top:.75rem">
+          <div class="form-group">
+            <label>Lab title <span style="color:var(--red)">*</span></label>
+            <input type="text" id="ingest-video-title" placeholder="e.g. OSPF Configuration Lab">
+          </div>
+          <div class="form-group" style="flex:0 0 140px">
+            <label>Frame interval (s)</label>
+            <input type="number" id="ingest-interval" value="5" min="1" max="60">
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="btn btn-primary" id="video-ingest-btn" onclick="ingestVideo()" disabled>⚡ Ingest Video</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ingest screenshots -->
+      <div class="card">
+        <div class="card-title"><span class="icon">🖼️</span> Ingest Screenshots</div>
+        <div class="drop-zone" id="ss-drop-zone" onclick="document.getElementById('ss-file-input').click()" ondragover="onDragOver(event,'ss-drop-zone')" ondragleave="onDragLeave('ss-drop-zone')" ondrop="onDropScreenshots(event)">
+          <div class="drop-icon">🖼️</div>
+          <div class="drop-label">Click to browse or drag & drop your screenshots</div>
+          <div class="drop-sub">Select multiple PNG/JPG files — order by filename</div>
+          <div class="drop-selected" id="ss-selected"></div>
+        </div>
+        <input type="file" id="ss-file-input" style="display:none" accept=".png,.jpg,.jpeg" multiple onchange="onScreenshotFilesSelected(this)">
+        <div class="form-row" style="margin-top:.75rem">
+          <div class="form-group">
+            <label>Lab title <span style="color:var(--red)">*</span></label>
+            <input type="text" id="ingest-folder-title" placeholder="e.g. BGP Lab">
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="btn btn-primary" id="ss-ingest-btn" onclick="ingestScreenshots()" disabled>⚡ Ingest Screenshots</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="ingest-progress-card" style="display:none">
+        <div class="card-title"><span class="icon">⏳</span> Ingestion Progress</div>
+        <div class="progress-box" id="ingest-log"></div>
+      </div>
+    </div><!-- /tab-ingest -->
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- ── Modals ── -->
+
+<!-- New guide modal -->
+<div class="modal-overlay" id="modal-new-guide">
+  <div class="modal">
+    <h3>Create New Guide</h3>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Title</label>
+      <input type="text" id="ng-title" placeholder="Lab guide title">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Author</label>
+        <input type="text" id="ng-author" placeholder="Your name">
+      </div>
+      <div class="form-group">
+        <label>Difficulty</label>
+        <select id="ng-difficulty">
+          <option value="beginner">Beginner</option>
+          <option value="intermediate" selected>Intermediate</option>
+          <option value="advanced">Advanced</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:0 0 100px">
+        <label>Duration (min)</label>
+        <input type="number" id="ng-duration" value="60">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-new-guide')">Cancel</button>
+      <button class="btn btn-primary" onclick="createGuide()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit metadata modal -->
+<div class="modal-overlay" id="modal-meta">
+  <div class="modal">
+    <h3>Edit Guide Info</h3>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Title</label>
+      <input type="text" id="meta-title">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Author</label>
+        <input type="text" id="meta-author">
+      </div>
+      <div class="form-group">
+        <label>Version</label>
+        <input type="text" id="meta-version">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Difficulty</label>
+        <select id="meta-difficulty">
+          <option value="beginner">Beginner</option>
+          <option value="intermediate">Intermediate</option>
+          <option value="advanced">Advanced</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Duration (min)</label>
+        <input type="number" id="meta-duration">
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Tags (comma-separated)</label>
+      <input type="text" id="meta-tags" placeholder="ospf, routing, cisco">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-meta')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMetadata()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI feedback modal -->
+<div class="modal-overlay" id="modal-ai">
+  <div class="modal">
+    <h3 id="modal-ai-title">Rewrite with AI</h3>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Feedback / instructions for the AI</label>
+      <textarea id="modal-ai-feedback" rows="4" placeholder="e.g. Make it more specific. Include the exact CLI command shown. Add a note about common mistakes."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-ai')">Cancel</button>
+      <button class="btn btn-ai" id="modal-ai-confirm" onclick="">✦ Rewrite</button>
+    </div>
+  </div>
+</div>
+
+<!-- Screenshot label modal -->
+
+<!-- Screenshot Repository Modal -->
+<div class="modal-overlay" id="modal-ss-repo">
+  <div class="modal" style="max-width:780px;width:95vw">
+    <h3>📷 Screenshot Repository</h3>
+    <div class="repo-filter">
+      <input type="text" id="repo-search" placeholder="Filter by caption…" oninput="repoFilter()">
+      <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap">
+        ⬆ Upload
+        <input type="file" accept=".png,.jpg,.jpeg" multiple style="display:none" onchange="repoUpload(this)">
+      </label>
+    </div>
+    <div class="repo-grid" id="repo-grid"></div>
+    <div style="margin-top:1rem;font-size:.8rem;color:var(--text2)">
+      Click a screenshot to select it, then click <strong>Attach to Step</strong>.
+      Hover for AI caption and delete options.
+    </div>
+    <div class="gap-row" style="margin-top:1rem">
+      <button class="btn btn-secondary" onclick="closeModal('modal-ss-repo')">Cancel</button>
+      <button class="btn btn-primary" id="repo-attach-btn" onclick="repoAttach()" disabled>📎 Attach to Step</button>
+    </div>
+  </div>
+</div>
+
+<!-- Screenshot Preview Modal -->
+<div class="modal-overlay" id="modal-ss-preview">
+  <div class="modal" style="max-width:90vw;width:auto;text-align:center">
+    <img id="ss-preview-img" src="" style="max-width:85vw;max-height:75vh;border-radius:6px">
+    <div id="ss-preview-cap" style="margin-top:.75rem;font-size:.85rem;color:var(--text2)"></div>
+    <button class="btn btn-secondary" style="margin-top:1rem" onclick="closeModal('modal-ss-preview')">Close</button>
+  </div>
+</div>
+
+<!-- Add Section Modal -->
+<div class="modal-overlay" id="modal-add-section">
+  <div class="modal" style="width:440px">
+    <h3>New Section</h3>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Title <span style="color:var(--accent)">*</span></label>
+      <input type="text" id="new-sec-title" placeholder="e.g. Browse the Integration Catalog"
+             onkeydown="if(event.key==='Enter')submitAddSection()">
+    </div>
+    <div class="form-group" style="margin-bottom:1rem">
+      <label>Overview <span style="font-weight:400;color:var(--text2)">(optional)</span></label>
+      <input type="text" id="new-sec-overview" placeholder="One-line description shown under the heading"
+             onkeydown="if(event.key==='Enter')submitAddSection()">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-section')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddSection()">Add Section</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────
+let currentGuideId = null;
+let currentGuide = null;
+let activeRecordingSession = null;
+let recTimerInterval = null;
+let recStartTime = null;
+let lastVideoPath = null;
+
+// Screenshot repository state
+let _repoItems = [];           // all screenshots from API
+let _repoStepTarget = null;    // step ID we're attaching to
+let _repoSectionTarget = null; // section ID (legacy filmstrip attach)
+let _repoBlockTarget = null;   // {secId, blockId} for block-level attach
+let _repoSelected = null;      // selected filename in repo
+
+// ── Main tab switching ────────────────────────────────────────
+function showMainTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach((t,i) => {
+    const tabs = ['guides','record','ingest'];
+    t.classList.toggle('active', tabs[i] === tab);
+  });
+  ['guides','record','ingest'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'guides' && currentGuideId) loadGuide(currentGuideId);
+}
+
+// ── Editor tab switching ──────────────────────────────────────
+function showEditorTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('epanel-' + tab).classList.add('active');
+  if (tab === 'preview') loadPreview();
+  if (tab === 'ai') loadModels();
+}
+
+// ── Guide library ─────────────────────────────────────────────
+async function loadLibrary() {
+  const res = await fetch('/api/guides');
+  const guides = await res.json();
+  const list = document.getElementById('guide-list');
+  document.getElementById('guide-count').textContent = guides.length + ' guide' + (guides.length !== 1 ? 's' : '');
+
+  if (!guides.length) {
+    list.innerHTML = '<div class="empty-state">No guides yet.<br>Record or ingest to get started.</div>';
+    return;
+  }
+  list.innerHTML = guides.map(g => `
+    <div class="guide-item ${g.id === currentGuideId ? 'active' : ''}" onclick="loadGuide('${g.id}')">
+      <div class="gtitle">${g.title}</div>
+      <div class="gmeta">${g.sections} sections · ${g.steps} steps · v${g.version}</div>
+    </div>
+  `).join('');
+}
+
+async function loadGuide(id) {
+  currentGuideId = id;
+  const res = await fetch('/api/guides/' + id);
+  currentGuide = await res.json();
+  renderGuide();
+  loadLibrary();
+  loadSyncConfig(id);
+  document.getElementById('no-guide').style.display = 'none';
+  document.getElementById('guide-editor').style.display = 'block';
+}
+
+function renderGuide() {
+  const g = currentGuide;
+  const m = g.metadata;
+  document.getElementById('ed-title').textContent = m.title;
+  document.getElementById('ed-version').textContent = 'v' + m.version;
+  document.getElementById('ed-difficulty').textContent = m.difficulty.charAt(0).toUpperCase() + m.difficulty.slice(1);
+  document.getElementById('ed-author').textContent = m.author || 'Unknown';
+  document.getElementById('ed-duration').textContent = m.lab_duration_minutes;
+  document.getElementById('ed-date').textContent = m.date;
+  document.getElementById('ed-tags').innerHTML = (m.tags || []).map(t => `<span class="badge badge-blue">${t}</span>`).join(' ');
+  document.getElementById('ed-intro').textContent = g.introduction || '(No introduction yet)';
+  document.getElementById('ed-conclusion').textContent = g.conclusion || '(No conclusion yet)';
+  renderSections();
+  renderObjectives();
+}
+
+function renderSections() {
+  const container = document.getElementById('ed-sections');
+  const sections = currentGuide.sections || [];
+  if (!sections.length) {
+    container.innerHTML = '<div class="card"><p class="text-muted">No sections yet. Click <strong>+ Add Section</strong> below, or ingest a recording to auto-generate.</p></div>';
+    return;
+  }
+  container.innerHTML = sections.map((sec, secIdx) => `
+    <div class="section-block" id="secblock-${sec.id}"
+         draggable="true"
+         ondragstart="secDragStart(event,'${sec.id}')"
+         ondragover="secDragOver(event,this)"
+         ondragleave="secDragLeave(this)"
+         ondrop="secDrop(event,'${sec.id}')">
+      <div class="section-header" onclick="toggleSection(this)">
+        <span class="sec-drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">⠿</span>
+        <span class="section-num">${secIdx + 1}</span>
+        <span class="section-title" id="sec-title-${sec.id}">${sec.title}</span>
+        <input class="sec-title-input" id="sec-title-input-${sec.id}"
+               style="display:none" value="${sec.title.replace(/"/g,'&quot;')}"
+               onblur="secTitleSave('${sec.id}')"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();secTitleSave('${sec.id}');}if(event.key==='Escape'){secTitleCancel('${sec.id}');}">
+        <span class="section-count">${sec.steps.length} step${sec.steps.length !== 1 ? 's' : ''}</span>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();secTitleEdit('${sec.id}')">✎ Rename</button>
+        <button class="btn btn-ai btn-sm" onclick="event.stopPropagation();rewriteSection('${sec.id}')">✦ AI</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteSection('${sec.id}')">✕</button>
+      </div>
+
+      <!-- Overview -->
+      <div class="sec-overview-row" id="sec-overview-row-${sec.id}">
+        <span class="sec-overview-text" id="sec-overview-text-${sec.id}">${sec.overview || '<em style="color:var(--text2)">No overview — click Edit to add one</em>'}</span>
+        <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="secOverviewEdit('${sec.id}','${(sec.overview||'').replace(/'/g,"\\'")}')">Edit</button>
+      </div>
+      <div id="sec-overview-edit-${sec.id}" style="display:none;padding:.4rem .75rem;border-bottom:1px solid var(--border)">
+        <textarea id="sec-overview-ta-${sec.id}" rows="2" style="width:100%;margin-bottom:.35rem;font-size:.83rem"></textarea>
+        <div class="gap-row">
+          <button class="btn btn-primary btn-sm" onclick="secOverviewSave('${sec.id}')">Save</button>
+          <button class="btn btn-secondary btn-sm" onclick="secOverviewCancel('${sec.id}')">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Content blocks -->
+      <div class="block-list" id="block-list-${sec.id}">
+        ${renderBlockDivider(sec.id, null)}
+        ${(sec.blocks || []).map(b => renderBlock(sec.id, b)).join('')}
+      </div>
+
+      <!-- Steps -->
+      <div class="steps-container" style="margin-top:.5rem">
+        ${sec.steps.map((step, i) => renderStep(step, i + 1)).join('')}
+        <button class="btn btn-secondary btn-sm" style="margin-top:.4rem;border-style:dashed" onclick="addStepToSection('${sec.id}')">+ Add Step</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderBlock(secId, block) {
+  if (block.type === 'text') {
+    return `
+      <div class="block-item block-text" id="block-${block.id}" draggable="true"
+           ondragstart="blockDragStart(event,'${secId}','${block.id}')"
+           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
+           ondrop="blockDrop(event,'${secId}','${block.id}')">
+        <div class="block-text-body" onclick="blockTextEdit('${block.id}',true)" title="Click to edit">
+          <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+          ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
+        </div>
+        <div class="block-text-edit" id="block-edit-${block.id}">
+          <textarea id="block-ta-${block.id}">${block.content}</textarea>
+          <div class="gap-row" style="margin-top:.35rem">
+            <button class="btn btn-primary btn-sm" onclick="blockTextSave('${secId}','${block.id}')">Save</button>
+            <button class="btn btn-secondary btn-sm" onclick="blockTextEdit('${block.id}',false)">Cancel</button>
+            <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="blockDelete('${secId}','${block.id}')">Delete block</button>
+          </div>
+        </div>
+      </div>
+      ${renderBlockDivider(secId, block.id)}`;
+  } else {
+    const fname = block.path ? block.path.split('/').pop() : '';
+    const cap = block.caption || '';
+    const imgHtml = fname
+      ? `<div class="block-ss-thumb" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')"><img src="/api/screenshots/file/${fname}" alt="${cap}"><div class="block-ss-caption">${cap || fname}</div></div>`
+      : `<div class="block-ss-thumb" style="display:flex;align-items:center;justify-content:center;height:100px;color:var(--text2);font-size:.8rem;cursor:default">No image yet</div>`;
+    return `
+      <div class="block-item block-screenshot" id="block-${block.id}" draggable="true"
+           ondragstart="blockDragStart(event,'${secId}','${block.id}')"
+           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
+           ondrop="blockDrop(event,'${secId}','${block.id}')">
+        <span class="block-drag-handle" title="Drag to reorder" style="margin-top:.5rem">⠿</span>
+        ${imgHtml}
+        <div class="block-ss-meta">
+          <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
+          <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
+            onchange="blockSsCaption('${secId}','${block.id}',this.value)">
+          <div class="block-actions">
+            <button class="btn btn-secondary btn-sm" onclick="blockSsPick('${secId}','${block.id}')">📂 Pick from Repository</button>
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+              ⬆ Upload<input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="blockSsUpload(this,'${secId}','${block.id}')">
+            </label>
+            <button class="btn btn-ai btn-sm" onclick="blockSsAiCaption('${secId}','${block.id}','${fname}')">✦ AI Caption</button>
+            <button class="btn btn-danger btn-sm" onclick="blockDelete('${secId}','${block.id}')">✕</button>
+          </div>
+        </div>
+      </div>
+      ${renderBlockDivider(secId, block.id)}`;
+  }
+}
+
+function renderBlockDivider(secId, afterBlockId) {
+  const aid = afterBlockId ? `'${afterBlockId}'` : 'null';
+  return `<div class="block-divider">
+    <div class="block-divider-line"></div>
+    <button class="btn btn-secondary block-add-btn" onclick="blockAddText('${secId}',${aid})">+ Text</button>
+    <button class="btn btn-secondary block-add-btn" onclick="blockAddScreenshot('${secId}',${aid})">🖼 Screenshot</button>
+    <div class="block-divider-line"></div>
+  </div>`;
+}
+
+function addSection() {
+  document.getElementById('new-sec-title').value = '';
+  document.getElementById('new-sec-overview').value = '';
+  document.getElementById('modal-add-section').classList.add('open');
+  setTimeout(() => document.getElementById('new-sec-title').focus(), 50);
+}
+
+async function submitAddSection() {
+  const title = document.getElementById('new-sec-title').value.trim();
+  if (!title) { document.getElementById('new-sec-title').focus(); return; }
+  const overview = document.getElementById('new-sec-overview').value.trim();
+  closeModal('modal-add-section');
+  const res = await fetch(`/api/guides/${currentGuideId}/section`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({title, overview}),
+  });
+  if (res.ok) await loadGuide(currentGuideId);
+  else alert('Failed to add section: ' + (await res.json()).error);
+}
+
+async function editSection(sectionId) {
+  // kept for any legacy callers — delegates to inline edit
+  secTitleEdit(sectionId);
+}
+
+function secTitleEdit(sectionId) {
+  const span = document.getElementById('sec-title-' + sectionId);
+  const inp = document.getElementById('sec-title-input-' + sectionId);
+  if (!span || !inp) return;
+  span.style.display = 'none';
+  inp.style.display = 'inline-block';
+  inp.focus();
+  inp.select();
+}
+function secTitleCancel(sectionId) {
+  const span = document.getElementById('sec-title-' + sectionId);
+  const inp = document.getElementById('sec-title-input-' + sectionId);
+  inp.value = span.textContent;
+  inp.style.display = 'none';
+  span.style.display = '';
+}
+async function secTitleSave(sectionId) {
+  const span = document.getElementById('sec-title-' + sectionId);
+  const inp = document.getElementById('sec-title-input-' + sectionId);
+  const newTitle = inp.value.trim();
+  inp.style.display = 'none';
+  span.style.display = '';
+  if (!newTitle || newTitle === span.textContent) return;
+  span.textContent = newTitle;
+  await fetch(`/api/guides/${currentGuideId}/section/${sectionId}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({title: newTitle}),
+  });
+  const sec = currentGuide.sections.find(s => s.id === sectionId);
+  if (sec) sec.title = newTitle;
+}
+
+function secOverviewEdit(sectionId, current) {
+  const ta = document.getElementById('sec-overview-ta-' + sectionId);
+  ta.value = current;
+  document.getElementById('sec-overview-row-' + sectionId).style.display = 'none';
+  document.getElementById('sec-overview-edit-' + sectionId).style.display = 'block';
+  ta.focus();
+}
+function secOverviewCancel(sectionId) {
+  document.getElementById('sec-overview-edit-' + sectionId).style.display = 'none';
+  document.getElementById('sec-overview-row-' + sectionId).style.display = 'flex';
+}
+async function secOverviewSave(sectionId) {
+  const text = document.getElementById('sec-overview-ta-' + sectionId).value.trim();
+  await fetch(`/api/guides/${currentGuideId}/section/${sectionId}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({overview: text}),
+  });
+  const sec = currentGuide.sections.find(s => s.id === sectionId);
+  if (sec) sec.overview = text;
+  const textEl = document.getElementById('sec-overview-text-' + sectionId);
+  textEl.innerHTML = text || '<em style="color:var(--text2)">No overview — click Edit to add one</em>';
+  secOverviewCancel(sectionId);
+}
+
+async function deleteSection(sectionId) {
+  const titleEl = document.getElementById('sec-title-' + sectionId);
+  const title = titleEl ? titleEl.textContent : 'this section';
+  if (!confirm(`Delete section "${title}" and all its steps? This cannot be undone.`)) return;
+  const res = await fetch(`/api/guides/${currentGuideId}/section/${sectionId}`, {method:'DELETE'});
+  if (res.ok) await loadGuide(currentGuideId);
+}
+
+function renderStep(step, globalNum) {
+  const shots = step.screenshots || [];
+  const thumbsHtml = shots.map((ss, idx) => {
+    const fname = ss.path.split('/').pop();
+    const cap = ss.caption || fname;
+    return `<div class="ss-thumb" draggable="true"
+        ondragstart="ssDragStart(event,'${step.id}',${idx})"
+        ondragover="ssDragOver(event,this)"
+        ondrop="ssDrop(event,'${step.id}',${idx})"
+        ondragleave="ssDragLeave(this)">
+      <img src="/api/screenshots/file/${fname}" alt="${cap}" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')">
+      <div class="ss-thumb-caption" title="${cap}">${cap}</div>
+      <div class="ss-thumb-actions">
+        <button class="ss-thumb-btn" title="Edit caption" onclick="ssEditCaption(event,'${step.id}',${idx},'${cap.replace(/'/g,"\\'")}')">✎</button>
+        <button class="ss-thumb-btn" title="Remove" onclick="ssRemove(event,'${step.id}',${idx})">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="step-card" id="step-${step.id}">
+      <div class="step-header">
+        <div class="step-num">${globalNum != null ? globalNum : step.order}</div>
+        <div class="step-title-text" id="step-title-text-${step.id}"
+             ondblclick="editStepInline('${step.id}')"
+             title="Double-click to edit">${step.title}</div>
+        <button class="btn btn-ai btn-sm" onclick="rewriteStep('${step.id}')">✦ AI</button>
+        <button class="btn btn-secondary btn-sm" onclick="editStepInline('${step.id}')">Edit</button>
+      </div>
+      <div class="step-body" id="step-body-${step.id}">${step.instruction}</div>
+      ${step.expected_result ? `<div class="expected">✓ ${step.expected_result}</div>` : ''}
+
+      <!-- Screenshot panel -->
+      <div class="step-screenshots">
+        <div class="step-screenshots-label">
+          🖼 Screenshots (${shots.length})
+          <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem" onclick="openSsRepo('${step.id}')">+ Add from Repository</button>
+          <label class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem;cursor:pointer">
+            ⬆ Upload
+            <input type="file" accept=".png,.jpg,.jpeg" multiple style="display:none" onchange="ssUploadAndAttach(this,'${step.id}')">
+          </label>
+        </div>
+        <div class="ss-thumb-row" id="ss-row-${step.id}">${thumbsHtml}</div>
+        ${shots.length === 0 ? '<div style="font-size:.75rem;color:var(--text2)">No screenshots attached. Upload or pick from the repository.</div>' : ''}
+      </div>
+
+      <div id="step-edit-${step.id}" style="display:none;margin-top:.75rem">
+        <div class="form-group" style="margin-bottom:.5rem">
+          <label>Title</label>
+          <input type="text" id="step-title-${step.id}" value="${step.title.replace(/"/g,'&quot;')}">
+        </div>
+        <div class="form-group" style="margin-bottom:.5rem">
+          <label>Instruction</label>
+          <textarea id="step-instr-${step.id}" rows="3">${step.instruction}</textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:.5rem">
+          <label>Expected Result</label>
+          <input type="text" id="step-exp-${step.id}" value="${step.expected_result || ''}">
+        </div>
+        <div class="gap-row">
+          <button class="btn btn-primary btn-sm" onclick="saveStepEdit('${step.id}')">Save</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelStepEdit('${step.id}')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderObjectives() {
+  const container = document.getElementById('ed-objectives');
+  const objs = currentGuide.learning_objectives || [];
+  if (!objs.length) {
+    container.innerHTML = '<p class="text-muted" style="font-size:.83rem">No objectives yet.</p>';
+    return;
+  }
+  container.innerHTML = objs.map(o => `
+    <div class="obj-item">
+      <span class="bloom-badge bloom-${o.bloom_level}">${o.bloom_level}</span>
+      <span style="flex:1;font-size:.83rem">${o.text}</span>
+      <button class="btn-icon" onclick="deleteObjective('${o.id}')" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function toggleSection(header) {
+  header.closest('.section-block').classList.toggle('section-collapsed');
+  header.querySelector('span').textContent =
+    header.closest('.section-block').classList.contains('section-collapsed') ? '▶' : '▼';
+}
+
+// ── Inline step editing ───────────────────────────────────────
+function editStepInline(stepId) {
+  document.getElementById('step-edit-' + stepId).style.display = 'block';
+  document.getElementById('step-' + stepId).classList.add('editing');
+}
+function cancelStepEdit(stepId) {
+  document.getElementById('step-edit-' + stepId).style.display = 'none';
+  document.getElementById('step-' + stepId).classList.remove('editing');
+}
+async function saveStepEdit(stepId) {
+  const title = document.getElementById('step-title-' + stepId).value.trim();
+  const instr = document.getElementById('step-instr-' + stepId).value;
+  const exp = document.getElementById('step-exp-' + stepId).value;
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({title, instruction: instr, expected_result: exp}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Screenshot Repository ─────────────────────────────────────
+
+async function openSsRepo(stepId) {
+  _repoStepTarget = stepId;
+  _repoSectionTarget = null;
+  _repoBlockTarget = null;
+  _repoSelected = null;
+  document.getElementById('repo-attach-btn').disabled = true;
+  document.getElementById('repo-search').value = '';
+  await repoLoad();
+  document.getElementById('modal-ss-repo').classList.add('open');
+}
+
+async function repoLoad() {
+  const resp = await fetch('/api/screenshots');
+  _repoItems = await resp.json();
+  repoRender(_repoItems);
+}
+
+function repoRender(items) {
+  const grid = document.getElementById('repo-grid');
+  if (!items.length) {
+    grid.innerHTML = '<div style="color:var(--text2);font-size:.83rem;grid-column:1/-1;padding:2rem;text-align:center">No screenshots yet. Upload some above.</div>';
+    return;
+  }
+  grid.innerHTML = items.map(it => {
+    const sel = _repoSelected === it.filename ? ' selected' : '';
+    const cap = it.caption || it.filename;
+    return `<div class="repo-thumb${sel}" onclick="repoSelect('${it.filename}',this)">
+      <img src="${it.url}" alt="${cap}" loading="lazy">
+      <div class="repo-ai-badge" title="AI caption">✦</div>
+      <div class="repo-thumb-actions">
+        <button class="ss-thumb-btn" title="AI caption" onclick="repoAiCaption(event,'${it.filename}')">✦ AI</button>
+        <button class="ss-thumb-btn" title="Delete" onclick="repoDelete(event,'${it.filename}')">🗑</button>
+      </div>
+      <div class="repo-thumb-cap" title="${cap}">${cap}</div>
+    </div>`;
+  }).join('');
+}
+
+function repoFilter() {
+  const q = document.getElementById('repo-search').value.toLowerCase();
+  const filtered = q ? _repoItems.filter(it => (it.caption || it.filename).toLowerCase().includes(q)) : _repoItems;
+  repoRender(filtered);
+}
+
+function repoSelect(filename, el) {
+  _repoSelected = filename;
+  document.querySelectorAll('.repo-thumb').forEach(t => t.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('repo-attach-btn').disabled = false;
+}
+
+async function repoAttach() {
+  if (!_repoSelected) return;
+  const item = _repoItems.find(i => i.filename === _repoSelected);
+  const caption = item ? (item.caption || '') : '';
+  if (_repoBlockTarget) {
+    const {secId, blockId} = _repoBlockTarget;
+    await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}/attach-screenshot`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({filename: _repoSelected, caption}),
+    });
+  } else if (_repoStepTarget) {
+    await fetch(`/api/guides/${currentGuideId}/step/${_repoStepTarget}/screenshots`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filename: _repoSelected, caption}),
+    });
+  } else if (_repoSectionTarget) {
+    await fetch(`/api/guides/${currentGuideId}/section/${_repoSectionTarget}/screenshots`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filename: _repoSelected, caption}),
+    });
+  }
+  _repoBlockTarget = null;
+  closeModal('modal-ss-repo');
+  await loadGuide(currentGuideId);
+  showToast('Screenshot attached');
+}
+
+async function repoUpload(input) {
+  const fd = new FormData();
+  for (const f of input.files) fd.append('files', f);
+  const resp = await fetch('/api/screenshots/upload', {method:'POST', body: fd});
+  const saved = await resp.json();
+  input.value = '';
+  await repoLoad();
+  showToast(`${saved.length} screenshot(s) uploaded`);
+}
+
+async function repoAiCaption(e, filename) {
+  e.stopPropagation();
+  const btn = e.target;
+  btn.textContent = '…';
+  const resp = await fetch(`/api/screenshots/${filename}/caption`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+  const data = await resp.json();
+  btn.textContent = '✦ AI';
+  if (data.caption) {
+    await repoLoad();
+    showToast('Caption: ' + data.caption);
+  } else {
+    showToast('AI caption failed: ' + (data.error || 'unknown'), true);
+  }
+}
+
+async function repoDelete(e, filename) {
+  e.stopPropagation();
+  if (!confirm('Delete this screenshot from the repository?')) return;
+  await fetch(`/api/screenshots/${filename}/delete`, {method:'POST'});
+  await repoLoad();
+  if (_repoSelected === filename) { _repoSelected = null; document.getElementById('repo-attach-btn').disabled = true; }
+}
+
+// ── Step screenshot inline actions ────────────────────────────
+
+async function ssRemove(e, stepId, idx) {
+  e.stopPropagation();
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/screenshots/${idx}`, {method:'DELETE'});
+  await loadGuide(currentGuideId);
+}
+
+async function ssEditCaption(e, stepId, idx, currentCap) {
+  e.stopPropagation();
+  const cap = prompt('Edit caption:', currentCap);
+  if (cap === null) return;
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/screenshots/${idx}/caption`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({caption: cap}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function ssUploadAndAttach(input, stepId) {
+  const fd = new FormData();
+  for (const f of input.files) fd.append('files', f);
+  const resp = await fetch('/api/screenshots/upload', {method:'POST', body: fd});
+  const saved = await resp.json();
+  input.value = '';
+  for (const s of saved) {
+    await fetch(`/api/guides/${currentGuideId}/step/${stepId}/screenshots`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({filename: s.filename, caption: ''}),
+    });
+  }
+  await loadGuide(currentGuideId);
+  showToast(`${saved.length} screenshot(s) uploaded and attached`);
+}
+
+// Preview
+function ssPreview(url, caption) {
+  document.getElementById('ss-preview-img').src = url;
+  document.getElementById('ss-preview-cap').textContent = caption;
+  document.getElementById('modal-ss-preview').classList.add('open');
+}
+
+// Drag-to-reorder within step
+let _dragStepId = null, _dragFromIdx = null;
+function ssDragStart(e, stepId, idx) {
+  _dragStepId = stepId; _dragFromIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+}
+function ssDragOver(e, el) { e.preventDefault(); el.classList.add('drag-over'); }
+function ssDragLeave(el) { el.classList.remove('drag-over'); }
+async function ssDrop(e, stepId, toIdx) {
+  e.preventDefault();
+  document.querySelectorAll('.ss-thumb').forEach(t => t.classList.remove('drag-over'));
+  if (_dragStepId !== stepId || _dragFromIdx === toIdx) return;
+  const step = currentGuide.sections.flatMap(s => s.steps).find(s => s.id === stepId);
+  if (!step) return;
+  const n = (step.screenshots || []).length;
+  const order = Array.from({length: n}, (_, i) => i);
+  order.splice(toIdx, 0, order.splice(_dragFromIdx, 1)[0]);
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/screenshots/reorder`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Content block actions ─────────────────────────────────────
+
+async function blockAddText(secId, afterId) {
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'text', content:'', after_id: afterId}),
+  });
+  await loadGuide(currentGuideId);
+  // Auto-focus the new text block
+  setTimeout(() => {
+    const list = document.getElementById('block-list-' + secId);
+    if (!list) return;
+    const blocks = list.querySelectorAll('.block-text');
+    if (blocks.length) {
+      const last = blocks[blocks.length - 1];
+      const body = last.querySelector('.block-text-body');
+      if (body) body.click();
+    }
+  }, 100);
+}
+
+async function blockAddScreenshot(secId, afterId) {
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'screenshot', content:'', after_id: afterId}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+function blockTextEdit(blockId, show) {
+  const body = document.querySelector('#block-' + blockId + ' .block-text-body');
+  const edit = document.getElementById('block-edit-' + blockId);
+  if (!body || !edit) return;
+  body.style.display = show ? 'none' : '';
+  edit.style.display = show ? 'block' : 'none';
+  if (show) {
+    const ta = document.getElementById('block-ta-' + blockId);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  }
+}
+
+async function blockTextSave(secId, blockId) {
+  const ta = document.getElementById('block-ta-' + blockId);
+  if (!ta) return;
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({content: ta.value}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function blockDelete(secId, blockId) {
+  if (!confirm('Delete this block?')) return;
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {method:'DELETE'});
+  await loadGuide(currentGuideId);
+}
+
+async function blockSsCaption(secId, blockId, caption) {
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({caption}),
+  });
+}
+
+async function blockSsPick(secId, blockId) {
+  _repoStepTarget = null;
+  _repoSectionTarget = null;
+  _repoBlockTarget = {secId, blockId};
+  _repoSelected = null;
+  document.getElementById('repo-attach-btn').disabled = true;
+  document.getElementById('repo-search').value = '';
+  await repoLoad();
+  document.getElementById('modal-ss-repo').classList.add('open');
+}
+
+async function blockSsUpload(input, secId, blockId) {
+  const fd = new FormData();
+  for (const f of input.files) fd.append('files', f);
+  const resp = await fetch('/api/screenshots/upload', {method:'POST', body: fd});
+  const saved = await resp.json();
+  input.value = '';
+  if (saved.length) {
+    const meta = _repoItems.find(i => i.filename === saved[0].filename);
+    await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}/attach-screenshot`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({filename: saved[0].filename, caption: ''}),
+    });
+    await repoLoad();
+    await loadGuide(currentGuideId);
+    showToast('Screenshot uploaded and attached');
+  }
+}
+
+async function blockSsAiCaption(secId, blockId, filename) {
+  if (!filename) { showToast('Pick a screenshot first', true); return; }
+  const resp = await fetch(`/api/screenshots/${filename}/caption`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+  const data = await resp.json();
+  if (data.caption) {
+    await blockSsCaption(secId, blockId, data.caption);
+    await loadGuide(currentGuideId);
+    showToast('AI caption: ' + data.caption);
+  }
+}
+
+// Block drag-to-reorder
+let _blockDragSecId = null, _blockDragId = null;
+function blockDragStart(e, secId, blockId) {
+  _blockDragSecId = secId; _blockDragId = blockId;
+  e.dataTransfer.effectAllowed = 'move';
+}
+function blockDragOver(e, el) { e.preventDefault(); el.classList.add('drag-over'); }
+function blockDragLeave(el) { el.classList.remove('drag-over'); }
+async function blockDrop(e, secId, targetBlockId) {
+  e.preventDefault();
+  document.querySelectorAll('.block-item').forEach(b => b.classList.remove('drag-over'));
+  if (_blockDragSecId !== secId || _blockDragId === targetBlockId) return;
+  const sec = currentGuide.sections.find(s => s.id === secId);
+  if (!sec) return;
+  const ids = (sec.blocks || []).map(b => b.id);
+  const fromIdx = ids.indexOf(_blockDragId);
+  const toIdx = ids.indexOf(targetBlockId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/reorder`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order: ids}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Section drag-to-reorder ────────────────────────────────────
+let _secDragId = null;
+function secDragStart(e, secId) {
+  _secDragId = secId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.stopPropagation();
+}
+function secDragOver(e, el) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (el.id !== 'secblock-' + _secDragId) el.classList.add('sec-drag-over');
+}
+function secDragLeave(el) { el.classList.remove('sec-drag-over'); }
+async function secDrop(e, targetSecId) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.querySelectorAll('.section-block').forEach(b => b.classList.remove('sec-drag-over'));
+  if (!_secDragId || _secDragId === targetSecId) return;
+  const ids = currentGuide.sections.map(s => s.id);
+  const fromIdx = ids.indexOf(_secDragId);
+  const toIdx = ids.indexOf(targetSecId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+  const res = await fetch(`/api/guides/${currentGuideId}/sections/reorder`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({order: ids}),
+  });
+  const data = await res.json();
+  if (data.guide) { currentGuide = data.guide; renderGuide(); }
+  else await loadGuide(currentGuideId);
+}
+
+// ── AI rewrites ───────────────────────────────────────────────
+let _aiCallback = null;
+
+function openAiModal(title, callback) {
+  document.getElementById('modal-ai-title').textContent = title;
+  document.getElementById('modal-ai-feedback').value = '';
+  _aiCallback = callback;
+  document.getElementById('modal-ai-confirm').onclick = () => {
+    closeModal('modal-ai');
+    callback(document.getElementById('modal-ai-feedback').value);
+  };
+  document.getElementById('modal-ai').classList.add('open');
+}
+
+async function rewriteStep(stepId) {
+  openAiModal('Rewrite Step with AI', async (feedback) => {
+    const card = document.getElementById('step-' + stepId);
+    card.style.opacity = '.5';
+    const res = await fetch(`/api/guides/${currentGuideId}/step/${stepId}/rewrite`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({feedback}),
+    });
+    card.style.opacity = '1';
+    if (res.ok) { await loadGuide(currentGuideId); }
+    else { alert('AI rewrite failed: ' + (await res.json()).error); }
+  });
+}
+
+async function rewriteSection(sectionId) {
+  openAiModal('Rewrite Section Overview with AI', async (feedback) => {
+    await fetch(`/api/guides/${currentGuideId}/section/${sectionId}/rewrite`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({feedback}),
+    });
+    await loadGuide(currentGuideId);
+  });
+}
+
+async function rewriteIntro() {
+  openAiModal('Rewrite Introduction with AI', async (feedback) => {
+    await fetch(`/api/guides/${currentGuideId}/introduction/rewrite`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({feedback}),
+    });
+    await loadGuide(currentGuideId);
+  });
+}
+
+function editIntro() {
+  const ta = document.getElementById('ed-intro-ta');
+  ta.value = currentGuide.introduction || '';
+  document.getElementById('ed-intro').style.display = 'none';
+  document.getElementById('ed-intro-edit').style.display = 'block';
+  ta.focus();
+}
+function cancelIntro() {
+  document.getElementById('ed-intro-edit').style.display = 'none';
+  document.getElementById('ed-intro').style.display = '';
+}
+async function saveIntro() {
+  const text = document.getElementById('ed-intro-ta').value;
+  await fetch(`/api/guides/${currentGuideId}/introduction`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text}),
+  });
+  currentGuide.introduction = text;
+  document.getElementById('ed-intro').textContent = text || '(No introduction yet)';
+  cancelIntro();
+}
+
+async function rewriteConclusion() {
+  openAiModal('Rewrite Conclusion with AI', async (feedback) => {
+    await fetch(`/api/guides/${currentGuideId}/conclusion/rewrite`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({feedback}),
+    });
+    await loadGuide(currentGuideId);
+  });
+}
+
+function editConclusion() {
+  const ta = document.getElementById('ed-conclusion-ta');
+  ta.value = currentGuide.conclusion || '';
+  document.getElementById('ed-conclusion').style.display = 'none';
+  document.getElementById('ed-conclusion-edit').style.display = 'block';
+  ta.focus();
+}
+function cancelConclusion() {
+  document.getElementById('ed-conclusion-edit').style.display = 'none';
+  document.getElementById('ed-conclusion').style.display = '';
+}
+async function saveConclusion() {
+  const text = document.getElementById('ed-conclusion-ta').value;
+  await fetch(`/api/guides/${currentGuideId}/conclusion`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text}),
+  });
+  currentGuide.conclusion = text;
+  document.getElementById('ed-conclusion').textContent = text || '(No conclusion yet)';
+  cancelConclusion();
+}
+
+async function addObjective() {
+  const desc = document.getElementById('new-obj-input').value.trim();
+  if (!desc) return;
+  document.getElementById('new-obj-input').value = '';
+  await fetch(`/api/guides/${currentGuideId}/objective`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({description: desc}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function deleteObjective(objId) {
+  await fetch(`/api/guides/${currentGuideId}/objective/${objId}`, {method:'DELETE'});
+  await loadGuide(currentGuideId);
+}
+
+async function addStepToSection(sectionId) {
+  const title = prompt('Step title:');
+  if (!title) return;
+  const desc = prompt('What should this step cover?');
+  if (!desc) return;
+  await fetch(`/api/guides/${currentGuideId}/step`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({section_id: sectionId, title, description: desc}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Model selector ─────────────────────────────────────────────────────────
+
+// Models that get a recommended tip (id → tip text)
+const MODEL_TIPS = {
+  'claude-sonnet-4.6':  '★ Best balance of quality & speed for lab guides',
+  'claude-sonnet-5':    '★ Recommended — sharpest reasoning, best for complex guides',
+  'claude-opus-4.8':    '⚡ Most powerful Claude — slower, great for full rewrites',
+  'gpt-4o':             '★ Strong all-rounder from OpenAI',
+  'gpt-4o-2024-11-20':  'Latest GPT-4o snapshot — very reliable',
+  'gpt-5.5':            '⚡ Cutting-edge GPT — best for nuanced suggestions',
+  'claude-haiku-4.5':   '⚡ Fastest & cheapest — good for quick edits',
+  'gpt-5-mini':         '⚡ Fast & lightweight — good for quick edits',
+};
+
+const RECOMMENDED_MODEL = 'claude-sonnet-5';
+
+async function loadModels() {
+  const sel = document.getElementById('model-select');
+  const tip = document.getElementById('model-tip');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    if (data.error) { sel.innerHTML = `<option>${data.error}</option>`; return; }
+    sel.innerHTML = data.models.map(m => {
+      const isRec = m.id === RECOMMENDED_MODEL;
+      const label = isRec ? `${m.name} ✦` : m.name;
+      return `<option value="${m.id}" ${m.id === data.current ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+    _updateModelTip(data.current, tip);
+  } catch(e) {
+    sel.innerHTML = '<option value="claude-sonnet-4.6">claude-sonnet-4.6</option>';
+  }
+}
+
+function _updateModelTip(modelId, tipEl) {
+  const t = tipEl || document.getElementById('model-tip');
+  const msg = MODEL_TIPS[modelId];
+  if (msg) {
+    t.textContent = msg;
+    t.style.display = 'inline-block';
+  } else {
+    t.style.display = 'none';
+  }
+}
+
+async function setModel(modelId) {
+  const status = document.getElementById('model-status');
+  const tip = document.getElementById('model-tip');
+  _updateModelTip(modelId, tip);
+  status.textContent = 'Switching…';
+  const res = await fetch('/api/settings/model', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({model: modelId}),
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? `Active model: ${modelId}` : `Error: ${data.error}`;
+  setTimeout(() => { status.textContent = ''; }, 3000);
+}
+
+// Load models when AI Tools tab is opened
+
+async function suggestImprovements() {
+  const container = document.getElementById('suggestion-list');
+  container.innerHTML = '<div class="spinner"></div> Reviewing guide…';
+  const res = await fetch(`/api/guides/${currentGuideId}/suggest`, {method:'POST'});
+  const data = await res.json();
+  if (data.error) { container.innerHTML = `<div style="color:var(--red)">${data.error}</div>`; return; }
+  if (!data.suggestions || !data.suggestions.length) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:.83rem">No suggestions — guide looks great!</div>';
+    return;
+  }
+  container.innerHTML = data.suggestions.map((s, i) => `
+    <div class="suggestion-item" id="suggestion-${i}" style="display:flex;align-items:flex-start;gap:.75rem">
+      <div style="flex:1">💡 ${s}</div>
+      <button class="btn btn-ai" style="flex:0 0 auto;font-size:.75rem;padding:.3rem .75rem;white-space:nowrap"
+        onclick="applySuggestion(${i}, ${JSON.stringify(s).replace(/"/g, '&quot;')})">
+        ✓ Accept
+      </button>
+    </div>
+  `).join('');
+}
+
+async function applySuggestion(idx, suggestion) {
+  const row = document.getElementById(`suggestion-${idx}`);
+  const btn = row.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = '⏳ Applying…';
+  const res = await fetch(`/api/guides/${currentGuideId}/apply-suggestion`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({suggestion}),
+  });
+  const data = await res.json();
+  if (data.error) {
+    btn.disabled = false;
+    btn.textContent = '✓ Accept';
+    alert('Failed to apply: ' + data.error);
+    return;
+  }
+  // Mark as applied and reload the guide editor
+  row.style.borderLeftColor = 'var(--green)';
+  row.style.opacity = '.6';
+  btn.textContent = '✓ Applied';
+  await loadGuide(currentGuideId);
+}
+
+// ── Preview ───────────────────────────────────────────────────
+async function loadPreview() {
+  const pane = document.getElementById('ed-preview');
+  pane.innerHTML = '<div class="spinner"></div> Generating preview...';
+  const res = await fetch(`/api/guides/${currentGuideId}/preview`);
+  const data = await res.json();
+  if (data.error) {
+    pane.innerHTML = `<p style="color:red">Preview error: ${data.error}</p>`;
+    return;
+  }
+  pane.innerHTML = data.html || '<p>Preview unavailable</p>';
+  // Wire up click-to-zoom on all preview figures
+  pane.querySelectorAll('.prev-figure img').forEach(img => {
+    img.addEventListener('click', () => {
+      const cap = img.closest('.prev-figure').querySelector('.prev-caption');
+      ssPreview(img.src, cap ? cap.textContent : '');
+    });
+  });
+}
+
+// ── Export ────────────────────────────────────────────────────
+// ── GitHub Publish ────────────────────────────────────────────────────────
+
+async function loadSyncConfig(guideId) {
+  const res = await fetch(`/api/guides/${guideId}/sync-config`);
+  const data = await res.json();
+  const repoEl = document.getElementById('pub-repo');
+  const branchEl = document.getElementById('pub-branch');
+  const lastEl = document.getElementById('pub-last');
+  if (repoEl) repoEl.value = data.github_repo || '';
+  if (branchEl) branchEl.value = data.github_branch || 'main';
+  if (lastEl) lastEl.textContent = data.last_published
+    ? 'Last published: ' + new Date(data.last_published + 'Z').toLocaleString()
+    : '';
+}
+
+async function saveSyncConfig() {
+  const repo = document.getElementById('pub-repo').value.trim();
+  const branch = document.getElementById('pub-branch').value.trim() || 'main';
+  const status = document.getElementById('pub-config-status');
+  const res = await fetch(`/api/guides/${currentGuideId}/sync-config`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({github_repo: repo, github_branch: branch}),
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? '✓ Saved' : ('Error: ' + data.error);
+  setTimeout(() => { status.textContent = ''; }, 2500);
+}
+
+async function saveAndPublish() {
+  await saveSyncConfig();
+  const log = document.getElementById('pub-log');
+  const lastEl = document.getElementById('pub-last');
+  log.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Starting publish…</div>';
+
+  const es = new EventSource(`/api/guides/${currentGuideId}/publish`);
+  es.onmessage = (e) => {
+    const evt = JSON.parse(e.data);
+    const cls = evt.type === 'error' ? ' error' : evt.type === 'done' ? ' done' : '';
+    log.innerHTML += `<div class="progress-line${cls}">${evt.message}</div>`;
+    log.scrollTop = log.scrollHeight;
+    if (evt.type === 'done') {
+      es.close();
+      if (lastEl && evt.last_published)
+        lastEl.textContent = 'Last published: ' + new Date(evt.last_published + 'Z').toLocaleString();
+    }
+    if (evt.type === 'error') es.close();
+  };
+  es.onerror = () => {
+    log.innerHTML += '<div class="progress-line error">Connection lost</div>';
+    es.close();
+  };
+}
+
+async function exportGuide(fmt) {
+  const card = event.currentTarget;
+  card.classList.add('loading');
+  card.querySelector('.export-icon').textContent = '⏳';
+  const logBox = document.getElementById('export-log');
+  logBox.style.display = 'block';
+  logBox.innerHTML = `<div class="progress-line">Exporting as ${fmt}...</div>`;
+
+  const res = await fetch(`/api/guides/${currentGuideId}/export/${fmt}`, {method:'POST'});
+  const data = await res.json();
+
+  card.classList.remove('loading');
+  const icons = {markdown:'📝',pdf:'📕',html:'🌐',docx:'📘',mkdocs:'🏗️'};
+  card.querySelector('.export-icon').textContent = icons[fmt] || '📄';
+
+  if (data.path) {
+    logBox.innerHTML += `<div class="progress-line done">✓ Saved: ${data.path}</div>`;
+    if (fmt !== 'mkdocs') {
+      logBox.innerHTML += `<div class="progress-line"><a href="/api/guides/${currentGuideId}/export/${fmt}/download" style="color:var(--accent)">⬇ Download</a></div>`;
+    }
+  } else {
+    logBox.innerHTML += `<div class="progress-line error">✗ ${data.error}</div>`;
+  }
+}
+
+// ── Metadata ──────────────────────────────────────────────────
+function openMetaModal() {
+  const m = currentGuide.metadata;
+  document.getElementById('meta-title').value = m.title;
+  document.getElementById('meta-author').value = m.author || '';
+  document.getElementById('meta-version').value = m.version;
+  document.getElementById('meta-difficulty').value = m.difficulty;
+  document.getElementById('meta-duration').value = m.lab_duration_minutes;
+  document.getElementById('meta-tags').value = (m.tags || []).join(', ');
+  document.getElementById('modal-meta').classList.add('open');
+}
+
+async function saveMetadata() {
+  closeModal('modal-meta');
+  await fetch(`/api/guides/${currentGuideId}/metadata`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      title: document.getElementById('meta-title').value,
+      author: document.getElementById('meta-author').value,
+      version: document.getElementById('meta-version').value,
+      difficulty: document.getElementById('meta-difficulty').value,
+      duration: parseInt(document.getElementById('meta-duration').value),
+      tags: document.getElementById('meta-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
+    }),
+  });
+  await loadGuide(currentGuideId);
+  loadLibrary();
+}
+
+// ── New guide ─────────────────────────────────────────────────
+function openNewGuideModal() {
+  document.getElementById('ng-title').value = '';
+  document.getElementById('ng-author').value = '';
+  document.getElementById('modal-new-guide').classList.add('open');
+  setTimeout(() => document.getElementById('ng-title').focus(), 50);
+}
+
+async function createGuide() {
+  const title = document.getElementById('ng-title').value.trim();
+  if (!title) { alert('Title is required'); return; }
+  closeModal('modal-new-guide');
+  const res = await fetch('/api/guides', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      title,
+      author: document.getElementById('ng-author').value,
+      difficulty: document.getElementById('ng-difficulty').value,
+      duration: document.getElementById('ng-duration').value,
+    }),
+  });
+  const data = await res.json();
+  await loadLibrary();
+  loadGuide(data.id);
+  showMainTab('guides');
+}
+
+async function deleteCurrentGuide() {
+  if (!confirm('Delete this guide? This cannot be undone.')) return;
+  await fetch('/api/guides/' + currentGuideId, {method:'DELETE'});
+  currentGuideId = null;
+  currentGuide = null;
+  document.getElementById('guide-editor').style.display = 'none';
+  document.getElementById('no-guide').style.display = 'flex';
+  loadLibrary();
+}
+
+// ── Recording ─────────────────────────────────────────────────
+async function startRecording() {
+  const audio = document.getElementById('rec-audio').checked;
+  const res = await fetch('/api/record/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({audio}),
+  });
+  const data = await res.json();
+  if (data.error) { alert('Recording error: ' + data.error); return; }
+  activeRecordingSession = data.session_id;
+  recStartTime = Date.now();
+  document.getElementById('rec-dot').classList.add('active');
+  document.getElementById('rec-status-text').textContent = 'Recording... (session: ' + data.session_id + ')';
+  document.getElementById('rec-start-btn').disabled = true;
+  document.getElementById('rec-stop-btn').disabled = false;
+  document.getElementById('rec-screenshot-btn').disabled = false;
+  recTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
+    const m = String(Math.floor(elapsed/60)).padStart(2,'0');
+    const s = String(elapsed%60).padStart(2,'0');
+    document.getElementById('rec-timer').textContent = m + ':' + s;
+  }, 1000);
+}
+
+async function stopRecording() {
+  clearInterval(recTimerInterval);
+  const res = await fetch('/api/record/stop', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: activeRecordingSession}),
+  });
+  const data = await res.json();
+  document.getElementById('rec-dot').classList.remove('active');
+  document.getElementById('rec-status-text').textContent = 'Not recording';
+  document.getElementById('rec-start-btn').disabled = false;
+  document.getElementById('rec-stop-btn').disabled = true;
+  document.getElementById('rec-screenshot-btn').disabled = true;
+
+  if (data.video_path) {
+    lastVideoPath = data.video_path;
+    const box = document.getElementById('rec-result');
+    box.style.display = 'block';
+    box.innerHTML = `<div class="progress-line done">✓ Saved: ${data.video_path}</div><div class="progress-line">Duration: ${data.duration_s}s · ${data.screenshots} screenshots</div>`;
+    document.getElementById('rec-ingest-card').style.display = 'block';
+  }
+  activeRecordingSession = null;
+}
+
+function takeScreenshot() {
+  // Fire immediately — no modal. Sequence number is auto-assigned server-side.
+  _doTakeScreenshot();
+}
+
+async function _doTakeScreenshot() {
+  const btn = document.getElementById('rec-screenshot-btn');
+  btn.disabled = true;
+  btn.textContent = '📸 Capturing…';
+  try {
+    const res = await fetch('/api/record/screenshot', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: activeRecordingSession, label: ''}),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    // Flash toast
+    _showScreenshotToast(data.seq, data.elapsed_s);
+    const box = document.getElementById('rec-result');
+    box.style.display = 'block';
+    box.innerHTML += `<div class="progress-line">📸 Step ${data.seq} — ${data.elapsed_s}s into recording</div>`;
+    box.scrollTop = box.scrollHeight;
+  } catch(err) {
+    alert('Screenshot failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📸 Screenshot';
+  }
+}
+
+function _showScreenshotToast(seq, elapsed) {
+  let toast = document.getElementById('ss-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'ss-toast';
+    toast.style.cssText = [
+      'position:fixed', 'bottom:2rem', 'right:2rem', 'z-index:9999',
+      'background:var(--accent)', 'color:#fff', 'font-weight:700',
+      'font-size:1rem', 'padding:.7rem 1.4rem', 'border-radius:8px',
+      'box-shadow:0 4px 20px rgba(0,0,0,.5)', 'opacity:0',
+      'transition:opacity .2s', 'pointer-events:none',
+    ].join(';');
+    document.body.appendChild(toast);
+  }
+  toast.textContent = `📸 Screenshot ${seq} captured (${elapsed}s)`;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+}
+
+async function ingestLastRecording() {
+  const title = document.getElementById('rec-ingest-title').value.trim();
+  if (!title) { alert('Enter a lab title'); return; }
+  if (!lastVideoPath) return;
+  // lastVideoPath is already on the server — pass directly without re-uploading
+  document.getElementById('ingest-video-title').value = title;
+  showMainTab('ingest');
+  // Kick off ingestion directly from the server path
+  startIngestJob('/api/ingest/video', {
+    video_path: lastVideoPath,
+    title,
+    frame_interval: parseFloat(document.getElementById('ingest-interval')?.value) || 5,
+  });
+}
+
+// ── Ingestion ─────────────────────────────────────────────────
+// ── Drop-zone helpers ──────────────────────────────────────────────────────
+let _docFile = null, _videoFile = null, _ssFiles = null;
+
+function onDragOver(e, zoneId) {
+  e.preventDefault();
+  document.getElementById(zoneId).classList.add('drag-over');
+}
+function onDragLeave(zoneId) {
+  document.getElementById(zoneId).classList.remove('drag-over');
+}
+
+function onDropDoc(e) {
+  e.preventDefault();
+  onDragLeave('doc-drop-zone');
+  const file = e.dataTransfer.files[0];
+  if (file) _setDocFile(file);
+}
+function onDropVideo(e) {
+  e.preventDefault();
+  onDragLeave('video-drop-zone');
+  const file = e.dataTransfer.files[0];
+  if (file) _setVideoFile(file);
+}
+function onDropScreenshots(e) {
+  e.preventDefault();
+  onDragLeave('ss-drop-zone');
+  const files = Array.from(e.dataTransfer.files).filter(f => /[.](png|jpg|jpeg)$/i.test(f.name));
+  if (files.length) _setSsFiles(files);
+}
+
+function onDocFileSelected(input) { if (input.files[0]) _setDocFile(input.files[0]); }
+function onVideoFileSelected(input) { if (input.files[0]) _setVideoFile(input.files[0]); }
+function onScreenshotFilesSelected(input) {
+  const files = Array.from(input.files);
+  if (files.length) _setSsFiles(files);
+}
+
+function _setDocFile(file) {
+  _docFile = file;
+  document.getElementById('doc-selected').textContent = '✓ ' + file.name + ' (' + _fmtSize(file.size) + ')';
+  document.getElementById('doc-ingest-btn').disabled = false;
+}
+function _setVideoFile(file) {
+  _videoFile = file;
+  document.getElementById('video-selected').textContent = '✓ ' + file.name + ' (' + _fmtSize(file.size) + ')';
+  document.getElementById('video-ingest-btn').disabled = false;
+}
+function _setSsFiles(files) {
+  _ssFiles = files;
+  document.getElementById('ss-selected').textContent = '✓ ' + files.length + ' file(s) selected';
+  document.getElementById('ss-ingest-btn').disabled = false;
+}
+function _fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  return (n/1048576).toFixed(1) + ' MB';
+}
+
+async function _uploadFile(endpoint, formData, logEl) {
+  logEl.innerHTML += '<div class="progress-line">Uploading file...</div>';
+  logEl.scrollTop = logEl.scrollHeight;
+  const res = await fetch(endpoint, {method: 'POST', body: formData});
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  logEl.innerHTML += `<div class="progress-line">✓ Uploaded: ${data.filename}</div>`;
+  logEl.scrollTop = logEl.scrollHeight;
+  return data;
+}
+
+// ── Ingest actions ─────────────────────────────────────────────────────────
+async function ingestDocument() {
+  if (!_docFile) { alert('Please select a document first'); return; }
+  const card = document.getElementById('ingest-progress-card');
+  const log = document.getElementById('ingest-log');
+  card.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Starting...</div>';
+  try {
+    const fd = new FormData();
+    fd.append('file', _docFile);
+    const {path} = await _uploadFile('/api/upload/document', fd, log);
+    startIngestJob('/api/ingest/document', {document_path: path});
+  } catch(err) {
+    log.innerHTML += `<div class="progress-line error">✗ Upload failed: ${err.message}</div>`;
+  }
+}
+
+async function ingestVideo() {
+  if (!_videoFile) { alert('Please select a video file first'); return; }
+  const title = document.getElementById('ingest-video-title').value.trim();
+  if (!title) { alert('Lab title is required'); return; }
+  const interval = parseFloat(document.getElementById('ingest-interval').value) || 5;
+  const card = document.getElementById('ingest-progress-card');
+  const log = document.getElementById('ingest-log');
+  card.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Starting...</div>';
+  try {
+    const fd = new FormData();
+    fd.append('file', _videoFile);
+    const {path} = await _uploadFile('/api/upload/video', fd, log);
+    startIngestJob('/api/ingest/video', {video_path: path, title, frame_interval: interval});
+  } catch(err) {
+    log.innerHTML += `<div class="progress-line error">✗ Upload failed: ${err.message}</div>`;
+  }
+}
+
+async function ingestScreenshots() {
+  if (!_ssFiles || !_ssFiles.length) { alert('Please select screenshot files first'); return; }
+  const title = document.getElementById('ingest-folder-title').value.trim();
+  if (!title) { alert('Lab title is required'); return; }
+  const card = document.getElementById('ingest-progress-card');
+  const log = document.getElementById('ingest-log');
+  card.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Uploading screenshots...</div>';
+  try {
+    const fd = new FormData();
+    for (const f of _ssFiles) fd.append('files', f);
+    const {folder_path, count} = await _uploadFile('/api/upload/screenshots', fd, log);
+    log.innerHTML += `<div class="progress-line">✓ ${count} screenshots saved</div>`;
+    log.scrollTop = log.scrollHeight;
+    startIngestJob('/api/ingest/screenshots', {folder_path, title});
+  } catch(err) {
+    log.innerHTML += `<div class="progress-line error">✗ Upload failed: ${err.message}</div>`;
+  }
+}
+
+async function startIngestJob(url, body) {
+  const card = document.getElementById('ingest-progress-card');
+  const log = document.getElementById('ingest-log');
+  card.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Starting...</div>';
+  log.scrollTop = log.scrollHeight;
+
+  const res = await fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  const {job_id, error} = await res.json();
+  if (error) { log.innerHTML += `<div class="progress-line error">✗ ${error}</div>`; return; }
+
+  const es = new EventSource(`/api/ingest/progress/${job_id}`);
+  es.onmessage = async (e) => {
+    const evt = JSON.parse(e.data);
+    if (evt.type === 'ping') return;
+    if (evt.type === 'progress') {
+      log.innerHTML += `<div class="progress-line">${evt.message}</div>`;
+      log.scrollTop = log.scrollHeight;
+    } else if (evt.type === 'done') {
+      log.innerHTML += `<div class="progress-line done">✓ Guide created: "${evt.title}" (${evt.sections} sections, ${evt.steps} steps)</div>`;
+      log.scrollTop = log.scrollHeight;
+      es.close();
+      await loadLibrary();
+      loadGuide(evt.guide_id);
+      showMainTab('guides');
+    } else if (evt.type === 'error') {
+      log.innerHTML += `<div class="progress-line error">✗ ${evt.message}</div>`;
+      es.close();
+    } else if (evt.type === 'end') {
+      es.close();
+    }
+  };
+}
+
+// ── Modals ────────────────────────────────────────────────────
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeModal(e.target.id);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+loadLibrary();
+loadModels();
+</script>
+</body>
+</html>"""
+
+
+# ─────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=5051)
+    parser.add_argument("--host", default="127.0.0.1")
+    args = parser.parse_args()
+    print(f"Lab Guide Automator dashboard → http://{args.host}:{args.port}")
+    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,505 @@
+{
+  "id": "84ff424d-ec65-4579-8be3-b9b7101bf6ea",
+  "metadata": {
+    "title": " (TEDC24) Unlock the Potential of Cisco’s Agentic Ops Framework",
+    "subtitle": "",
+    "version": "0.4 Draft",
+    "author": "",
+    "date": "2026-07-18",
+    "lab_duration_minutes": 60,
+    "difficulty": "intermediate",
+    "tags": [
+      "agent-builder",
+      "cisco",
+      "ai-canvas",
+      "mcp",
+      "integrations",
+      "automation",
+      "cloud-control",
+      "studio"
+    ],
+    "prerequisites": [
+      "Cisco SSO credentials and access to your Cloud Control tenant",
+      "Admin Console access within your tenant",
+      "API credentials for the third-party tools you want to connect (see Appendix A)"
+    ]
+  },
+  "introduction": "## The Vision: Cisco Cloud Control\n\nEnterprise IT runs on specialized products, each built to solve a different operational challenge. Cisco has spent decades building deep capabilities across networking, security, compute, observability, and collaboration. That depth matters — but the hardest operational problems rarely stay within one product or IT domain. Issues spill across boundaries, context gets lost, and teams spend more time coordinating than resolving.\n\nCisco Cloud Control was built to change that. It connects the full Cisco estate and third-party systems into one unified operational environment, giving teams a single place to manage infrastructure, carry context across products, and move from issue to resolution — without giving up the specialized tools they already rely on.\n\nAs AI agents become a practical part of IT operations, teams will increasingly work alongside agents that investigate issues, recommend changes, and take action. This new operating model is **AgenticOps**. Cisco Cloud Control is the platform that makes it practical — providing the trusted access, live operational context, authorized tools, and safeguards that agents need to act with confidence.\n\nBuilt on this foundation, **AI Canvas** brings operators and AI agents together to investigate and resolve cross-domain issues in real time. **Agent Builder** lets organizations build their own custom agents, encode their expertise, and connect the tools they already use — such as ServiceNow, Meraki, and more.\n\nCisco Cloud Control delivers three foundational capabilities:\n\n- **Manage** — One control plane to manage the Cisco estate and connected third-party systems.\n- **Resolve** — Find and fix issues across products and IT domains with shared operational context.\n- **Extend** — Build custom apps and agents, connect existing tools, and add Cisco and ecosystem capabilities.\n\n---\n\n## What You Will Do in This Lab\n\nIn this hands-on lab you will experience Cisco Cloud Control end-to-end across its key platform areas:\n\n1. **Explore the Platform** — Navigate Cisco Cloud Control and understand its capabilities across Platform Services, getting familiar with the unified operational environment.\n\n2. **Discover Your Meraki Organization** — Connect to your Meraki org and explore the network infrastructure available in your POD, seeing how Cisco Cloud Control surfaces real device and topology context.\n\n3. **Experience the Agentic AI Canvas** — Work with the AI Canvas to see how operators and AI agents collaborate to investigate and resolve cross-domain issues across your infrastructure.\n\n4. **Build an Agent with Agent Builder** — Leverage a ServiceNow integration to construct a working AI agent from scratch, defining its tools, context, and behavior.\n\n5. **Troubleshoot a Network Issue** — Diagnose and resolve a connectivity problem between the two switches in your POD, using the platform's operational context to identify root cause and take action.",
+  "learning_objectives": [
+    {
+      "id": "3b2f9850",
+      "text": "Navigate to Agent Builder via the Cloud Control Studio interface",
+      "bloom_level": "remember"
+    },
+    {
+      "id": "65534209",
+      "text": "Configure third-party integrations (ServiceNow, Atlassian, Infoblox, BlueCat) in Admin Console",
+      "bloom_level": "apply"
+    },
+    {
+      "id": "3b81b0c9",
+      "text": "Verify integration connections and use them in AI Canvas with natural language queries",
+      "bloom_level": "apply"
+    },
+    {
+      "id": "f0208951",
+      "text": "Create an autonomous agent with a profile, trigger, and cadence",
+      "bloom_level": "apply"
+    },
+    {
+      "id": "9d19d5e2",
+      "text": "Test an agent using the Test tab before promoting to production",
+      "bloom_level": "evaluate"
+    },
+    {
+      "id": "7bf6a0e3",
+      "text": "Promote, monitor, and manage agent versions in production",
+      "bloom_level": "analyze"
+    }
+  ],
+  "sections": [
+    {
+      "id": "e1635c37",
+      "title": "Navigating to Agent Builder",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "49d9323f",
+          "order": 1,
+          "title": "Overview",
+          "instruction": "Log in to Cloud Control at cloud.cisco.com.\n\nClick the nine-dots menu in the top header.\n\nUnder Platform Services, click Studio. If it is not visible, click Show more to expand the list.\n\nThis opens the Agent Builder Overview page. The top navigation bar has four tabs: Overview, Integrations, Agent Builder, and Observability.\n\nOn a fresh setup, the Overview page shows two calls to action: Browse Integrations and Create an Agent. It also shows three summary cards — agents currently running, total active agents, and number of connected integrations — along with a Recent Agent Activity section and a Connected Integrations section.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-agent-builder-overview-page-showing-stat-cards-recent-agent.png",
+              "timestamp_s": 0.0,
+              "caption": "Agent Builder Overview page showing stat cards, recent agent activity, and connected integrations"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "d7691b27",
+      "title": "Section 1: Third-Party Integrations",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "17e791d1",
+          "order": 2,
+          "title": "What Are Integrations?",
+          "instruction": "Integrations connect Agent Builder to your third-party tools — ServiceNow, Atlassian, Infoblox, BlueCat, and others. Each integration is backed by an MCP server that exposes the vendor’s API as callable tools. Once connected, AI Canvas can use those tools to query data and take actions in that vendor’s platform on your behalf.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "5471fb1f",
+          "order": 3,
+          "title": "Browse the Integration Catalog",
+          "instruction": "Click the Integrations tab. You will see a tile catalog with one tile per available MCP server. Each tile shows the vendor name, product description, and either a + Configure button (not yet connected) or a ✓ Configured checkmark (already connected) in the bottom right corner.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-integrations-catalog-showing-available-mcp-server-tiles.png",
+              "timestamp_s": 0.0,
+              "caption": "Integrations catalog showing available MCP server tiles"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "68692d3a",
+          "order": 4,
+          "title": "1.2 Configure an Integration",
+          "instruction": "Clicking + Configure on a tile cross-launches you into the Integrations section of the Admin Console. You can also navigate there directly:\n\nClick the nine-dots menu → Admin Console (under Platform Services; click Show more if not visible) → Integrations.\n\nClick + Create Integration in the top right.\n\nIn the pop-up, click the Integration Name drop-down and select the integration you want to set up.\n\nAfter selecting an integration, additional fields appear specific to that vendor. Enter your credentials.\n\nSee Appendix A for what each vendor requires and where to find those values.\n\nClick Save.\n\nThe integration appears in the table on the Admin Console Integrations page with the name and date created. You can Edit or Delete it from that table. Only one active credential entry is supported per integration — to update credentials, edit the existing entry.\n\nEach user configures their own credentials. Repeat this process for every integration you want to connect.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-admin-console-integrations-page-showing-the-list-of-configur.png",
+              "timestamp_s": 0.0,
+              "caption": "Admin Console Integrations page showing the list of configured integrations"
+            },
+            {
+              "path": "screenshots/84ff424d-create-integration-pop-up-with-the-integration-name-drop-dow.png",
+              "timestamp_s": 0.0,
+              "caption": "Create Integration pop-up with the Integration Name drop-down open showing available options"
+            },
+            {
+              "path": "screenshots/84ff424d-create-integration-form-showing-the-host-url-and-api-token-f.png",
+              "timestamp_s": 0.0,
+              "caption": "Create Integration form showing the Host URL and API Token fields for a selected integration"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "a470864d",
+          "order": 5,
+          "title": "1.3 Verify the Connection",
+          "instruction": "Return to the Integrations tab in Studio. Each integration you configured will now show a ✓ Configured checkmark instead of + Configure.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "67c75441",
+          "order": 6,
+          "title": "1.4 Use Your Integrations in Canvas",
+          "instruction": "Go to AI Canvas and enter a natural language query. Canvas routes the query to the appropriate integration based on context.\n\nWhat you can ask depends on which tools that vendor’s MCP server exposes. Canvas fetches the relevant data and returns a structured result.\n\nSee Appendix B for the full tool list per integration.\n\nSample queries:\n\n“Fetch details for ServiceNow ticket INC0012345”\n\n“Show me all open P1 incidents in ServiceNow”\n\n“What are the open Jira issues in the NETOPS project?”\n\n“Check DHCP utilization for the 10.150.28.0/24 subnet”",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-canvas-with-a-user-query-fetching-details-for-a-specific-ser.png",
+              "timestamp_s": 0.0,
+              "caption": "Canvas with a user query fetching details for a specific ServiceNow ticket"
+            },
+            {
+              "path": "screenshots/84ff424d-canvas-displaying-fetched-ticket-details-including-summary.png",
+              "timestamp_s": 0.0,
+              "caption": "Canvas displaying fetched ticket details including summary, timestamps, and assignment information"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "30445ea6",
+      "title": "Section 2: Agent Builder",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "218f9359",
+          "order": 7,
+          "title": "2.1 Creating an Agent",
+          "instruction": "Before creating an agent, verify that all integrations the agent will need are already configured:\n\nCisco product tools (Meraki, ThousandEyes, Catalyst SD-WAN, etc.) are available by default — no setup required.\n\nThird-party integrations (ServiceNow, Atlassian, Infoblox, BlueCat, etc.) must be configured in Admin Console before you can use them in an agent. See Section 1 for setup steps.\n\nClick the Agent Builder tab. If no agents have been created yet, you will see a Create Agent call to action in the center of the page, along with a + Create Agent button in the top right.\n\nClick either to start the agent creation flow. Agent creation has three steps: Agent Profile → Triggers → Review.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-agent-builder-tab-in-empty-state-with-the-create-agent-call.png",
+              "timestamp_s": 0.0,
+              "caption": "Agent Builder tab in empty state with the Create Agent call to action"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "508ae258",
+          "order": 8,
+          "title": "Step 1: Agent Profile",
+          "instruction": "Tips for writing good instructions:\n\nBe specific about what data to pull and from which source\n\nSpecify the output format (e.g., a table with specific columns)\n\nInclude thresholds or conditions to flag (e.g., “flag any incident not updated in the last 4 hours”)\n\nOnce the required fields are filled in, click Continue.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-agent-profile-form-filled-in-with-agent-name-description-a.png",
+              "timestamp_s": 0.0,
+              "caption": "Agent Profile form filled in with agent name, description, and instructions"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "300678fa",
+          "order": 9,
+          "title": "Step 2: Triggers",
+          "instruction": "Trigger Mode determines how the agent is activated. Select a mode from the drop-down:\n\nCurrently, only Ambient mode is available.\n\nActivation Cadence — Set how often the agent runs:\n\nTrigger Prompt — Enter the prompt sent to the agent each time it wakes up. The Instructions from Step 1 define how the agent behaves; the trigger prompt is the specific request it executes on each run. Keep it concise.\n\nExample:\n\n“Fetch and summarize the current status of the incidents.”\n\nClick Continue when done. You can click Back at any point to return to the previous step.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-triggers-form-showing-ambient-mode-selected-hourly-cadence.png",
+              "timestamp_s": 0.0,
+              "caption": "Triggers form showing Ambient mode selected, Hourly cadence, and trigger prompt"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "2f1e25c2",
+          "order": 10,
+          "title": "Step 3: Review",
+          "instruction": "The Review page shows a summary of everything you configured — agent name, description, trigger mode, activation schedule, and trigger prompt. Verify the details look correct, then click Create Agent.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-review-page-showing-a-summary-of-the-agent-configuration-bef.png",
+              "timestamp_s": 0.0,
+              "caption": "Review page showing a summary of the agent configuration before creation"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "1351ed5b",
+          "order": 11,
+          "title": "What Happens When You Click Create Agent",
+          "instruction": "Studio runs through a series of automated steps that typically take one to a few minutes:\n\nValidating inputs — Checks that all required fields are present and correctly formatted\n\nSelecting tools — Automatically identifies and scopes the MCP tools this agent needs based on its instructions and integrations. The agent only has access to the tools relevant to its job, which improves accuracy, reduces token usage, and makes it faster. In a future release, you will be able to see and modify this tool scope directly.\n\nAI Defense reviewing — Scans the agent configuration for safety and security issues\n\nBuilding manifest — Assembles the agent’s runtime manifest\n\nValidating configuration — Validates the full configuration package\n\nGenerating agent package — Generates the deployable agent artifact\n\nSaving configuration — Persists the agent configuration\n\nOpening launch setup — Initializes the agent and opens the confirmation page\n\nOnce complete, a confirmation page shows the agent name, description, and a summary of its configuration including status, version, trigger type, and AI Defense protection.\n\nTwo buttons are available:",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-agent-creation-progress-screen-showing-each-automated-step-c.png",
+              "timestamp_s": 0.0,
+              "caption": "Agent creation progress screen showing each automated step completing in sequence"
+            },
+            {
+              "path": "screenshots/84ff424d-agent-created-confirmation-page-with-view-agent-and-test-age.png",
+              "timestamp_s": 0.0,
+              "caption": "Agent created confirmation page with View Agent and Test Agent buttons"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "d9779ee1",
+          "order": 12,
+          "title": "2.2 Testing Your Agent",
+          "instruction": "The Test tab provides a live test environment where you can chat directly with the agent to verify it responds correctly before promoting it to production.\n\nPre-canned prompts at the top let you run common checks with a single click:\n\nSummarize configuration — Agent summarizes its own setup\n\nExplain guardrails — Agent describes its safety constraints\n\nRun readiness check — Agent confirms it can reach its configured integrations and tools\n\nYou can also type anything directly into the prompt box. A good starting point is to enter the trigger prompt you configured and verify the agent returns the expected output.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-test-tab-showing-pre-canned-prompt-options-and-the-live-test.png",
+              "timestamp_s": 0.0,
+              "caption": "Test tab showing pre-canned prompt options and the live test chat interface"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "9b07df4e",
+          "order": 13,
+          "title": "2.3 Managing Your Agent",
+          "instruction": "The agent detail page has four tabs:",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "3e98e7af",
+          "order": 14,
+          "title": "Versions and Promoting to Production",
+          "instruction": "When an agent is first created, it starts as Version 1 in Candidate state, visible in the Release History table on the Configurations tab.\n\nTo promote an agent to production:\n\nIn the Configurations tab, find the Release History table.\n\nOn the V1 row, click Promote to production under Actions.\n\nA confirmation pop-up will appear. Review the details, then click Promote to production to confirm, or Cancel to go back.\n\nThe version is promoted instantly. A confirmation banner appears and the version badge in the Release History table updates to Production. The agent will now begin running on the schedule you configured.\n\nOnce in production, you can:\n\nUpdate the config — Edit the agent’s profile or instructions to create a new version, test it, and promote it when ready\n\nMonitor runs — Check the Run tab to see execution history, outputs, and any errors\n\nUpdate the trigger — Go to the Trigger tab to change the cadence or trigger prompt\n\nRoll back — Promote any previously published version from the Release History table\n\nDelete the agent — Remove the agent entirely from the agent detail page if it is no longer needed",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [
+            {
+              "path": "screenshots/84ff424d-configurations-tab-showing-agent-details-ai-defense-protect.png",
+              "timestamp_s": 0.0,
+              "caption": "Configurations tab showing agent details, AI Defense protection status, and the Release History table with V1 as a Candidate"
+            },
+            {
+              "path": "screenshots/84ff424d-promote-to-production-confirmation-pop-up.png",
+              "timestamp_s": 0.0,
+              "caption": "Promote to production confirmation pop-up"
+            },
+            {
+              "path": "screenshots/84ff424d-configurations-tab-after-promotion-showing-the-production-ba.png",
+              "timestamp_s": 0.0,
+              "caption": "Configurations tab after promotion showing the Production badge and version promoted confirmation"
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "f3370a0a",
+          "order": 15,
+          "title": "2.4 Observability",
+          "instruction": "Each time an ambient agent completes a run, its output appears in the Notifications pane in the Cloud Control header — one notification per run. To view results:\n\nClick the notifications icon in the Cloud Control header.\n\nFind the notification for the run you want to review and click on it.\n\nThe full output produced by that run will be displayed.\n\nUse the Download option to export the output if needed.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "efbb9a87",
+      "title": "Troubleshooting",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": []
+    },
+    {
+      "id": "a5615ad8",
+      "title": "Appendix A: Vendor Setup Instructions",
+      "overview": "This appendix covers what you need from each vendor’s platform to complete the credential form in Admin Console.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "6ad1c082",
+          "order": 16,
+          "title": "ServiceNow CMDB",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-instance.service-now.com\n\nAPI Token — your-api-token\n\nHow to obtain:\n\nTo be added.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "c237b7bc",
+          "order": 17,
+          "title": "ServiceNow ITSM",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-instance.service-now.com\n\nClient ID — your-oauth-client-id\n\nClient Secret — your-oauth-client-secret\n\nHow to obtain:\n\nServiceNow ITSM uses OAuth 2.0. You will need oauth_admin, mi_admin, or admin role in your ServiceNow instance.\n\nIn ServiceNow, navigate to All → Machine Identity Console → Inbound integrations.\n\nCreate a new integration, select OAuth - Authorization code grant, and set Token Format to JWT under Advanced Options.\n\nProvide the redirect URL shown in the Admin Console integration form.\n\nComplete the OAuth flow using a dedicated integration user account created for this purpose.\n\nRequirement: ServiceNow Zurich or later with a Now Assist SKU and Now Assist for ITSM installed.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "83c0c062",
+          "order": 18,
+          "title": "ServiceNow ITOM",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-instance.service-now.com\n\nAPI Token — your-api-token\n\nHow to obtain:\n\nTo be added.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "655c3d87",
+          "order": 19,
+          "title": "Atlassian (Jira + Confluence)",
+          "instruction": "Fields in Admin Console:\n\nEmail — your-atlassian-account@example.com\n\nAPI Token — your-atlassian-api-token\n\nHow to obtain an Atlassian API token:\n\nLog in to id.atlassian.com.\n\nGo to Security → API tokens → Create API token.\n\nGive it a label (e.g., “Cisco Agent Builder”) and copy the token value.\n\nUse this token along with your Atlassian account email when filling in the Admin Console form.\n\nNote: API token authentication must be enabled by your Atlassian org admin. The Atlassian MCP server defaults to OAuth 2.1 — confirm with your admin that API token auth is permitted for your org.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "19e3cf49",
+          "order": 20,
+          "title": "Infoblox DDI",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-infoblox-instance.example.com\n\nAPI Token — your-api-token\n\nHow to obtain:\n\nTo be added.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "50645ca0",
+          "order": 21,
+          "title": "BlueCat Integrity",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-bluecat-instance.example.com\n\nUsername — your-username\n\nPassword — your-password\n\nHow to obtain:\n\nTo be added.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "7e6ea2fe",
+          "order": 22,
+          "title": "BlueCat Edge",
+          "instruction": "Fields in Admin Console:\n\nHost URL — https://your-bluecat-edge-instance.example.com\n\nAPI Token — your-api-token\n\nHow to obtain:\n\nTo be added.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "426cdb08",
+      "title": "Appendix B: Available Tools by Integration",
+      "overview": "What Canvas can do via each integration is determined by the tools that vendor exposes through their MCP server.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "9f2750ce",
+          "order": 23,
+          "title": "Atlassian — Jira",
+          "instruction": "",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "bd4808cd",
+          "order": 24,
+          "title": "Atlassian — Confluence",
+          "instruction": "",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "d5e86453",
+          "order": 25,
+          "title": "ServiceNow ITSM",
+          "instruction": "Note: Incident creation is not in the confirmed tool set for ITSM and may require additional configuration. Contact your Cisco representative.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "d28c7836",
+          "order": 26,
+          "title": "ServiceNow CMDB, ITOM, Infoblox, BlueCat",
+          "instruction": "Tool lists to be added — pending confirmation.\n\nDocument version: 0.4 Draft — All sections and screenshots complete. Appendix A vendor instructions partially complete.",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    }
+  ],
+  "conclusion": "You have now set up integrations, created and tested an agent, and promoted it to production. Use the Observability tab and Notifications pane to monitor ongoing agent runs. Refer to Appendix A for vendor-specific credential setup and Appendix B for the full list of available tools per integration. For issues not covered in the Troubleshooting section, contact your Cisco representative.",
+  "topology_image": null,
+  "recording_path": null,
+  "created_at": "2026-07-18T20:28:58.991971",
+  "updated_at": "2026-07-19T00:36:55.197803",
+  "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
+  "github_branch": "main",
+  "last_published": "2026-07-19T00:32:40.646286"
+}

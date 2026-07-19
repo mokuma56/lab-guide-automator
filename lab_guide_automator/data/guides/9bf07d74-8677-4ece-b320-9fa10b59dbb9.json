@@ -1,0 +1,22 @@
+{
+  "id": "9bf07d74-8677-4ece-b320-9fa10b59dbb9",
+  "metadata": {
+    "title": "OSPF Configuration Lab",
+    "subtitle": "",
+    "version": "1.0",
+    "author": "MaoKuma",
+    "date": "2026-07-18",
+    "lab_duration_minutes": 60,
+    "difficulty": "intermediate",
+    "tags": [],
+    "prerequisites": []
+  },
+  "introduction": "",
+  "learning_objectives": [],
+  "sections": [],
+  "conclusion": "",
+  "topology_image": null,
+  "recording_path": null,
+  "created_at": "2026-07-18T15:26:11.395776",
+  "updated_at": "2026-07-18T15:26:11.395957"
+}
