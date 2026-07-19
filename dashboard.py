@@ -27,7 +27,7 @@ from export.exporter import (
 )
 from recording.recorder import (
     RecordingSession, start_recording, start_screenshot_session,
-    stop_recording, take_screenshot, list_browser_windows,
+    stop_recording, take_screenshot, list_browser_windows, list_audio_devices,
 )
 
 app = Flask(__name__)
@@ -580,6 +580,10 @@ def api_record_start():
             session = start_screenshot_session(sid, out_dir)
 
         _active_sessions[sid] = session
+        # Apply window selection immediately if provided
+        window_id = data.get("window_id")
+        if window_id is not None:
+            _session_window[sid] = int(window_id)
         meta = {
             "session_id": sid,
             "name": (data.get("name") or "").strip() or sid,
@@ -690,6 +694,16 @@ def api_record_status():
          "paused": sid in _paused_sessions}
         for sid, s in _active_sessions.items()
     ])
+
+
+@app.route("/api/audio-devices")
+def api_audio_devices():
+    """Return list of AVFoundation audio input devices."""
+    try:
+        devices = list_audio_devices()
+        return jsonify({"devices": devices})
+    except Exception as e:
+        return jsonify({"devices": [], "error": str(e)})
 
 
 @app.route("/api/sessions")
@@ -1008,6 +1022,12 @@ def capture_panel():
     <span class="lbl" style="flex:1">Microphone</span>
     <button id="btn-mic-test" onclick="toggleMicTest()">🎙 Test mic</button>
   </div>
+  <div class="row" style="margin-top:4px">
+    <span class="lbl" style="white-space:nowrap">Audio source</span>
+    <select id="audio-device-select" style="flex:1;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:4px;font-size:11px;padding:2px 4px;">
+      <option value="0">Loading…</option>
+    </select>
+  </div>
   <div id="meter-bar-wrap"><div id="meter-bar"></div></div>
   <div id="gain-row">
     <span class="lbl" style="white-space:nowrap">Input gain</span>
@@ -1023,7 +1043,7 @@ def capture_panel():
 <div class="col" id="window-section">
   <span class="lbl">Capture window</span>
   <div class="row">
-    <select id="win-select" disabled>
+    <select id="win-select">
       <option value="">-- Full screen --</option>
     </select>
     <button id="btn-refresh" onclick="loadWindows()" title="Refresh windows">↺</button>
@@ -1050,7 +1070,7 @@ let _elapsed = 0;
 
 // mic test state
 let _micStream = null, _micCtx = null, _micAnalyser = null, _micGain = null;
-let _micActive = false, _micRaf = null;
+let _micActive = false, _micRaf = null, _meterSmooth = 0;
 
 function fmt(s) {
   const m = Math.floor(s/60), sec = Math.floor(s%60);
@@ -1074,12 +1094,14 @@ function setMode(mode) {
 // ── Session start / stop ──────────────────────────────────────
 async function startSession() {
   const name = document.getElementById('session-name').value.trim() || 'Untitled Session';
+  const winSel = document.getElementById('win-select');
+  const windowId = winSel.value ? parseInt(winSel.value) : null;
   document.getElementById('feedback').textContent = '';
   document.getElementById('done-banner').style.display = 'none';
   try {
     const res = await fetch('/api/record/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({mode: _mode, audio: true, name})
+      body: JSON.stringify({mode: _mode, audio: true, name, window_id: windowId})
     });
     const d = await res.json();
     if (d.error) { document.getElementById('feedback').textContent = '✗ ' + d.error; return; }
@@ -1130,7 +1152,7 @@ function setRunning(yes, sid, paused) {
 
   document.getElementById('btn-shot').disabled  = !yes || _paused || _mode === 'video';
   document.getElementById('label').disabled     = !yes || _paused || _mode === 'video';
-  document.getElementById('win-select').disabled = !yes;
+  // window picker stays enabled at all times so user can choose before starting
 
   const st = document.getElementById('status');
   if (!yes)        { st.className = '';       st.textContent = 'No session'; }
@@ -1195,14 +1217,17 @@ async function loadWindows() {
 async function pinWindow() {
   const sel = document.getElementById('win-select');
   const wid = sel.value ? parseInt(sel.value) : null;
-  try {
-    await fetch('/api/record/set-window', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({window_id: wid, session_id: _sid || ''})
-    });
-    document.getElementById('pin-status').textContent =
-      wid ? '\u2713 ' + sel.options[sel.selectedIndex].textContent.slice(0,42) : '';
-  } catch(e) {}
+  const label = wid ? '\u2713 ' + sel.options[sel.selectedIndex].textContent.slice(0,42) : '';
+  document.getElementById('pin-status').textContent = label;
+  // If a session is already running, update it immediately on the server too
+  if (_sid) {
+    try {
+      await fetch('/api/record/set-window', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({window_id: wid, session_id: _sid})
+      });
+    } catch(e) {}
+  }
 }
 document.getElementById('win-select').addEventListener('change', pinWindow);
 
@@ -1240,7 +1265,8 @@ async function startMicTest() {
     _micStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
     _micCtx = new AudioContext();
     _micAnalyser = _micCtx.createAnalyser();
-    _micAnalyser.fftSize = 256;
+    _micAnalyser.fftSize = 1024;
+    _micAnalyser.smoothingTimeConstant = 0.8;
     _micGain = _micCtx.createGain();
     const src = _micCtx.createMediaStreamSource(_micStream);
     // chain: mic → gain → analyser
@@ -1266,6 +1292,7 @@ function stopMicTest() {
   if (_micStream) { _micStream.getTracks().forEach(t => t.stop()); _micStream = null; }
   if (_micCtx) { _micCtx.close(); _micCtx = null; }
   _micGain = null;
+  _meterSmooth = 0;
   document.getElementById('meter-bar').style.width = '0%';
   document.getElementById('meter-bar').style.background = '#238636';
   document.getElementById('btn-mic-test').classList.remove('active');
@@ -1284,15 +1311,23 @@ function drawMeter() {
   if (!_micActive || !_micAnalyser) return;
   const data = new Uint8Array(_micAnalyser.frequencyBinCount);
   _micAnalyser.getByteFrequencyData(data);
-  const avg = data.reduce((s,v) => s+v, 0) / data.length;
-  const pct = Math.min(100, avg * 2.5);
+  // RMS across all bins
+  let sumSq = 0;
+  for (let i = 0; i < data.length; i++) sumSq += data[i] * data[i];
+  const rms = Math.sqrt(sumSq / data.length);
+  const raw = Math.min(100, rms * 0.6);   // conservative multiplier
+  // Heavy smoothing: rise 0.12, fall 0.04 — stays calm, no jumps
+  _meterSmooth = raw > _meterSmooth
+    ? _meterSmooth + (raw - _meterSmooth) * 0.12
+    : _meterSmooth + (raw - _meterSmooth) * 0.04;
+  const pct = Math.round(_meterSmooth);
   const bar = document.getElementById('meter-bar');
   bar.style.width = pct + '%';
-  bar.style.background = pct < 50 ? '#238636' : pct < 80 ? '#d29922' : '#f85149';
+  bar.style.background = pct < 60 ? '#238636' : pct < 85 ? '#d29922' : '#f85149';
   const st = document.getElementById('audio-status');
-  if (pct < 5)       st.textContent = 'Silence \u2014 speak to test';
-  else if (pct < 40) st.textContent = 'Good level \u2713';
-  else if (pct < 75) st.textContent = 'Loud \u2014 consider moving back';
+  if (pct < 8)       st.textContent = 'Silence \u2014 speak to test';
+  else if (pct < 60) st.textContent = 'Good level \u2713';
+  else if (pct < 85) st.textContent = 'Loud \u2014 consider moving back';
   else               st.textContent = '\u26a0 Clipping \u2014 too loud!';
   _micRaf = requestAnimationFrame(drawMeter);
 }

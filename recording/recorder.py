@@ -82,6 +82,25 @@ def _avfoundation_devices() -> list[str]:
     return (result.stdout + result.stderr).splitlines()
 
 
+def list_audio_devices() -> list[dict]:
+    """Return parsed list of AVFoundation audio input devices.
+
+    Returns a list of dicts: [{"index": 0, "name": "MacBook Pro Microphone"}, ...]
+    """
+    lines = _avfoundation_devices()
+    audio_section = False
+    devices: list[dict] = []
+    for line in lines:
+        if "AVFoundation audio devices" in line:
+            audio_section = True
+            continue
+        if audio_section:
+            m = re.search(r'\[(\d+)\]\s+(.+)', line)
+            if m:
+                devices.append({"index": int(m.group(1)), "name": m.group(2).strip()})
+    return devices
+
+
 # ─────────────────────────────────────────────────────────────
 # Recording control
 # ─────────────────────────────────────────────────────────────
