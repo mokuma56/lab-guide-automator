@@ -1529,6 +1529,67 @@ def api_ingest_screenshots():
     return jsonify({"job_id": job_id})
 
 
+@app.route("/api/guides/<guide_id>/ingest-section", methods=["POST"])
+def api_ingest_section(guide_id):
+    """Generate a new section from screenshots and append it to an existing guide."""
+    guide = _load_guide(guide_id)
+    if guide is None:
+        return jsonify({"error": "Guide not found"}), 404
+
+    data = request.json or {}
+    folder = data.get("folder_path", "")
+    section_title = data.get("section_title", "New Section").strip() or "New Section"
+    position = data.get("position")  # optional int index to insert at; None = append
+
+    if not Path(folder).is_dir():
+        return jsonify({"error": f"Not a directory: {folder}"}), 400
+
+    screenshots = sorted(
+        list(Path(folder).glob("*.png")) +
+        list(Path(folder).glob("*.jpg")) +
+        list(Path(folder).glob("*.jpeg"))
+    )
+    if not screenshots:
+        return jsonify({"error": "No screenshots found in folder"}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+    q: queue.Queue = queue.Queue()
+    _progress_queues[job_id] = q
+
+    def run():
+        def progress(msg, *args):
+            q.put({"type": "progress", "message": str(msg)})
+        try:
+            q.put({"type": "progress", "message": f"Processing {len(screenshots)} screenshot(s) for section '{section_title}'…"})
+            new_section = _run_async(ingest.ingest_section(
+                settings, screenshots,
+                section_title=section_title,
+                guide_context=guide.metadata.title,
+                progress_callback=progress,
+            ))
+            # Reload guide fresh in case it was edited while the job ran
+            g = _load_guide(guide_id)
+            if g is None:
+                raise RuntimeError("Guide was deleted while job was running")
+            if position is not None and 0 <= int(position) <= len(g.sections):
+                g.sections.insert(int(position), new_section)
+            else:
+                g.sections.append(new_section)
+            _renumber_steps(g)
+            _save_guide(g)
+            q.put({"type": "done",
+                   "section_id": new_section.id,
+                   "section_title": new_section.title,
+                   "steps": len(new_section.steps)})
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
 @app.route("/api/ingest/document", methods=["POST"])
 def api_ingest_document():
     """Ingest an existing lab guide document (PDF, DOCX, MD, HTML)."""
@@ -2166,6 +2227,7 @@ def _render_html() -> str:
           <div style="margin-bottom:.6rem;display:flex;gap:.5rem;align-items:center">
             <strong style="font-size:.85rem;color:var(--text2)">SECTIONS</strong>
             <button class="btn btn-primary btn-sm" onclick="addSection()" style="margin-left:auto">+ Add Section</button>
+            <button class="btn btn-ai btn-sm" onclick="openAddAISection()">✦ AI Section</button>
           </div>
           <div id="ed-sections"></div>
 
@@ -2685,6 +2747,35 @@ def _render_html() -> str:
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-add-section')">Cancel</button>
       <button class="btn btn-primary" onclick="submitAddSection()">Add Section</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add AI Section Modal -->
+<div class="modal-overlay" id="modal-add-ai-section">
+  <div class="modal" style="width:520px">
+    <h3>✦ Generate Section with AI</h3>
+    <p style="color:var(--text2);font-size:.85rem;margin-bottom:1rem">
+      Capture screenshots for one section, then let AI write the steps and add the section to this guide.
+    </p>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>Section Title <span style="color:var(--accent)">*</span></label>
+      <input type="text" id="ai-sec-title" placeholder="e.g. Configure the SD-WAN Policy">
+    </div>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label style="display:flex;align-items:center;gap:.5rem">
+        Screenshots Session
+        <button onclick="loadAISectionSessions()" style="background:none;border:none;color:var(--accent);font-size:.75rem;cursor:pointer">↺ Refresh</button>
+      </label>
+      <div id="ai-sec-session-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:.4rem;margin-top:.3rem">
+        <div style="color:var(--text2);font-size:.8rem">Loading…</div>
+      </div>
+      <div id="ai-sec-selected-label" style="font-size:.75rem;color:var(--accent);margin-top:.3rem"></div>
+    </div>
+    <div id="ai-sec-progress-log" style="display:none;max-height:120px;overflow-y:auto;background:var(--bg2);border-radius:6px;padding:.5rem;font-size:.78rem;font-family:monospace;margin-bottom:.75rem"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-ai-section')">Cancel</button>
+      <button class="btn btn-ai" id="ai-sec-submit-btn" onclick="submitAddAISection()">✦ Generate &amp; Add Section</button>
     </div>
   </div>
 </div>
@@ -4558,6 +4649,97 @@ async function startIngestJob(url, body) {
       showMainTab('guides');
     } else if (evt.type === 'error') {
       log.innerHTML += `<div class="progress-line error">✗ ${evt.message}</div>`;
+      es.close();
+    } else if (evt.type === 'end') {
+      es.close();
+    }
+  };
+}
+
+// ── AI Section (generate one section and append to open guide) ─
+let _aiSecSessionPath = null;
+
+function openAddAISection() {
+  if (!currentGuideId) return;
+  _aiSecSessionPath = null;
+  document.getElementById('ai-sec-title').value = '';
+  document.getElementById('ai-sec-selected-label').textContent = '';
+  document.getElementById('ai-sec-progress-log').style.display = 'none';
+  document.getElementById('ai-sec-progress-log').innerHTML = '';
+  document.getElementById('ai-sec-submit-btn').disabled = false;
+  document.getElementById('modal-add-ai-section').classList.add('open');
+  loadAISectionSessions();
+}
+
+async function loadAISectionSessions() {
+  const list = document.getElementById('ai-sec-session-list');
+  list.innerHTML = '<div style="color:var(--text2);font-size:.8rem">Loading…</div>';
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    if (!sessions.length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:.8rem">No capture sessions yet. Use the float panel to capture screenshots first.</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s =>
+      '<div class="session-row" id="aisr-' + s.session_id + '" onclick="selectAISecSession(' +
+        JSON.stringify(s.session_id) + ',' + JSON.stringify(s.folder_path) + ')">' +
+        '<span class="ss-id">' + s.session_id + '</span>' +
+        '<span class="ss-count">📸 ' + s.screenshot_count + ' screenshot' + (s.screenshot_count !== 1 ? 's' : '') + ' · ' + s.size_mb + ' MB</span>' +
+        '<span class="ss-date">' + s.recorded_at + '</span>' +
+      '</div>'
+    ).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--red);font-size:.8rem">Failed to load sessions</div>';
+  }
+}
+
+function selectAISecSession(sid, folderPath) {
+  _aiSecSessionPath = folderPath;
+  document.querySelectorAll('#ai-sec-session-list .session-row').forEach(r => r.classList.remove('active'));
+  const row = document.getElementById('aisr-' + sid);
+  if (row) row.classList.add('active');
+  document.getElementById('ai-sec-selected-label').textContent = '✓ ' + sid + ' selected';
+}
+
+async function submitAddAISection() {
+  const title = document.getElementById('ai-sec-title').value.trim();
+  if (!title) { document.getElementById('ai-sec-title').focus(); return; }
+  if (!_aiSecSessionPath) { alert('Please select a capture session first.'); return; }
+
+  const log = document.getElementById('ai-sec-progress-log');
+  log.style.display = 'block';
+  log.innerHTML = '<div class="progress-line">Starting…</div>';
+  document.getElementById('ai-sec-submit-btn').disabled = true;
+
+  const res = await fetch('/api/guides/' + currentGuideId + '/ingest-section', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder_path: _aiSecSessionPath, section_title: title}),
+  });
+  const {job_id, error} = await res.json();
+  if (error) {
+    log.innerHTML += '<div class="progress-line error">✗ ' + error + '</div>';
+    document.getElementById('ai-sec-submit-btn').disabled = false;
+    return;
+  }
+
+  const es = new EventSource('/api/ingest/progress/' + job_id);
+  es.onmessage = async (e) => {
+    const evt = JSON.parse(e.data);
+    if (evt.type === 'ping') return;
+    if (evt.type === 'progress') {
+      log.innerHTML += '<div class="progress-line">' + evt.message + '</div>';
+      log.scrollTop = log.scrollHeight;
+    } else if (evt.type === 'done') {
+      log.innerHTML += '<div class="progress-line done">✓ Section "' + evt.section_title + '" added (' + evt.steps + ' step' + (evt.steps !== 1 ? 's' : '') + ')</div>';
+      log.scrollTop = log.scrollHeight;
+      es.close();
+      await loadGuide(currentGuideId);
+      closeModal('modal-add-ai-section');
+    } else if (evt.type === 'error') {
+      log.innerHTML += '<div class="progress-line error">✗ ' + evt.message + '</div>';
+      document.getElementById('ai-sec-submit-btn').disabled = false;
       es.close();
     } else if (evt.type === 'end') {
       es.close();

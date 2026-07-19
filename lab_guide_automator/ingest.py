@@ -338,3 +338,76 @@ async def ingest_screenshots(
     )
     guide.save(session_dir / "guide.json")
     return guide
+
+
+# ─────────────────────────────────────────────────────────────
+# Single-section ingestion (add to existing guide)
+# ─────────────────────────────────────────────────────────────
+
+async def ingest_section(
+    settings: Settings,
+    screenshots: list[Path],
+    section_title: str,
+    guide_context: str = "",
+    progress_callback=None,
+) -> LabSection:
+    """
+    Generate a single LabSection from a set of screenshots.
+
+    Uses the same vision + cluster pipeline as the full ingest but skips
+    guide-level generation (objectives, intro, section detection).  The
+    returned LabSection can be appended directly to an existing LabGuide.
+    """
+    def _progress(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+
+    _progress(f"Analysing {len(screenshots)} screenshots\u2026")
+    frame_descs = await describe_frames(
+        settings, screenshots,
+        lab_context=guide_context or section_title,
+        progress_callback=lambda msg: _progress(msg),
+    )
+
+    _progress("Clustering screenshots into steps\u2026")
+    raw_steps = await cluster_into_steps(settings, frame_descs, section_title)
+
+    _progress(f"Writing {len(raw_steps)} step(s)\u2026")
+    steps: list[LabStep] = []
+    for order, rs in enumerate(raw_steps, start=1):
+        shot_list: list[StepScreenshot] = []
+        for fi in rs.get("frame_indices", []):
+            if fi < len(frame_descs):
+                fd = frame_descs[fi]
+                shot_list.append(StepScreenshot(
+                    path=str(fd["frame"]),
+                    caption=fd["description"][:120],
+                ))
+        steps.append(LabStep(
+            order=order,
+            title=rs["title"],
+            instruction=rs["instruction"],
+            expected_result=rs.get("expected_result", ""),
+            screenshots=shot_list,
+        ))
+
+    # One-sentence section overview
+    _progress("Writing section overview\u2026")
+    step_titles = [s.title for s in steps]
+    overview_prompt = (
+        f"Write a single concise sentence (max 25 words) summarising what the user "
+        f"will accomplish in the '{section_title}' section of a lab guide. "
+        f"Steps covered: {', '.join(step_titles)}."
+    )
+    try:
+        overview = await ai_client.chat(settings, [{"role": "user", "content": overview_prompt}])
+        overview = overview.strip().strip('"')
+    except Exception:
+        overview = ""
+
+    _progress("Done.")
+    return LabSection(
+        title=section_title,
+        overview=overview,
+        steps=steps,
+    )
