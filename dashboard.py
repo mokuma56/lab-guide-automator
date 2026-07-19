@@ -307,6 +307,79 @@ def api_save_intro(guide_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/enhance-text", methods=["POST"])
+def api_enhance_text():
+    """Polish / fix / improve arbitrary HTML or plain text via AI.
+    Body: {text: str, context: str (optional hint), mode: 'polish'|'expand'|'shorten'}
+    Returns: {enhanced: str}
+    """
+    try:
+        from lab_guide_automator.ai_client import chat
+        data    = request.json or {}
+        text    = data.get("text", "").strip()
+        context = data.get("context", "")
+        mode    = data.get("mode", "polish")
+
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+
+        mode_instructions = {
+            "polish":  "Fix all spelling mistakes, grammar errors, punctuation, and awkward phrasing. "
+                       "Improve clarity, flow, and professional tone. Keep the meaning and length similar.",
+            "expand":  "Expand and elaborate on the content, adding relevant detail, examples, "
+                       "or explanations while keeping a professional technical tone.",
+            "shorten": "Condense the content to its essential points without losing key information. "
+                       "Keep it clear and professional.",
+        }
+
+        system_prompt = (
+            "You are a professional technical writer editing lab guide content. "
+            + mode_instructions.get(mode, mode_instructions["polish"]) + " "
+            "Return ONLY the improved text. "
+            "If the input contains HTML tags, preserve them and return valid HTML. "
+            "Do not add commentary, preamble, or explanation."
+        )
+        if context:
+            system_prompt += f"\n\nSection context: {context}"
+
+        enhanced = _run_async(chat(settings, system_prompt, text))
+        return jsonify({"enhanced": enhanced.strip()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/capture-attach", methods=["POST"])
+def api_step_capture_attach(guide_id, step_id):
+    """Take a screenshot right now, save to repo, attach to the step.
+    Returns {filename, url} so the client can open the annotator.
+    """
+    try:
+        from recording.recorder import take_screenshot
+        g    = _load_guide(guide_id)
+        step = g.get_step(step_id)
+        if not step:
+            return jsonify({"error": "Step not found"}), 404
+
+        # Capture to a temp path then copy to repo
+        import tempfile, shutil
+        fname  = f"step-capture-{uuid.uuid4().hex[:8]}.png"
+        dest   = _ss_dir() / fname
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "snap.png"
+            take_screenshot(str(tmp))
+            shutil.copy(str(tmp), str(dest))
+
+        # Attach to step
+        from lab_guide_automator.models import ScreenshotRef
+        step.screenshots.append(ScreenshotRef(path=str(dest), caption=""))
+        g.touch()
+        _save_guide(g)
+
+        return jsonify({"filename": fname, "url": f"/api/screenshots/file/{fname}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/guides/<guide_id>/conclusion/rewrite", methods=["POST"])
 def api_rewrite_conclusion(guide_id):
     try:
@@ -3790,6 +3863,7 @@ function renderStep(step, globalNum) {
       <div class="step-screenshots">
         <div class="step-screenshots-label">
           🖼 Screenshots (${shots.length})
+          <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem" onclick="stepCaptureAndAnnotate('${step.id}')">📸 Capture</button>
           <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem" onclick="openSsRepo('${step.id}')">+ Add from Repository</button>
           <label class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem;cursor:pointer">
             ⬆ Upload
@@ -3812,6 +3886,16 @@ function renderStep(step, globalNum) {
          <div class="form-group" style="margin-bottom:.5rem">
            <label>Expected Result</label>
            <input type="text" id="step-exp-${step.id}" value="${step.expected_result || ''}">
+         </div>
+         <!-- AI Enhance row -->
+         <div style="display:flex;align-items:center;gap:6px;margin-bottom:.6rem;padding:.5rem .6rem;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+           <span style="font-size:.75rem;color:var(--text2);flex:1">✦ AI — fix spelling, grammar &amp; clarity, or expand / shorten</span>
+           <select id="step-ai-mode-${step.id}" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;font-size:.75rem">
+             <option value="polish">Polish</option>
+             <option value="expand">Expand</option>
+             <option value="shorten">Shorten</option>
+           </select>
+           <button class="btn btn-ai btn-sm" id="step-ai-btn-${step.id}" onclick="stepAiEnhance('${step.id}')">✦ Enhance</button>
          </div>
          <div class="gap-row">
            <button class="btn btn-primary btn-sm" onclick="saveStepEdit('${step.id}')">Save</button>
@@ -3980,6 +4064,91 @@ async function saveStepEdit(stepId) {
     body: JSON.stringify({title, instruction: instr, expected_result: exp}),
   });
   await loadGuide(currentGuideId);
+}
+
+// ── In-section capture + annotate ───────────────────────────
+
+async function stepCaptureAndAnnotate(stepId) {
+  const btn = document.querySelector(`[onclick="stepCaptureAndAnnotate('${stepId}')"]`);
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Capturing…'; btn.disabled = true; }
+
+  try {
+    // 1. Tell server to take screenshot + attach to this step
+    const res  = await fetch(`/api/guides/${currentGuideId}/step/${stepId}/capture-attach`, {method:'POST'});
+    const data = await res.json();
+    if (data.error) { alert('Capture failed: ' + data.error); return; }
+
+    // 2. Refresh the step card so the new thumbnail appears
+    await loadGuide(currentGuideId);
+
+    // 3. Open annotation modal on the captured screenshot
+    //    Give loadGuide a moment to re-render before opening annotator
+    setTimeout(() => {
+      _annFilename = data.filename;
+      _annImgSrc   = data.url;
+      _annContext  = {type: 'step', sid: null, stepId, guideId: currentGuideId};
+      _annOpenModal(data.url);
+    }, 150);
+
+  } catch(err) {
+    alert('Capture error: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = origText; btn.disabled = false; }
+  }
+}
+
+// ── AI Enhance text inside Quill ─────────────────────────────
+
+async function stepAiEnhance(stepId) {
+  const quill = _quillEditors[stepId];
+  if (!quill) { alert('Open the edit panel first.'); return; }
+
+  const html  = quill.getSemanticHTML().trim();
+  if (!html || html === '<p></p>') { alert('Nothing to enhance — write some content first.'); return; }
+
+  const mode  = document.getElementById('step-ai-mode-' + stepId).value;
+  const btn   = document.getElementById('step-ai-btn-' + stepId);
+  const orig  = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Thinking…'; btn.disabled = true; }
+
+  // Grab section context (section title) if available
+  let context = '';
+  const stepEl = document.getElementById('step-' + stepId);
+  if (stepEl) {
+    const secBlock = stepEl.closest('.section-block');
+    if (secBlock) {
+      const secTitle = secBlock.querySelector('.section-title');
+      if (secTitle) context = secTitle.textContent.trim();
+    }
+  }
+
+  try {
+    const res  = await fetch('/api/enhance-text', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text: html, mode, context}),
+    });
+    const data = await res.json();
+    if (data.error) { alert('AI enhance failed: ' + data.error); return; }
+
+    // Replace Quill content with enhanced version (preserves edit session)
+    const enhanced = data.enhanced.trim();
+    const delta = quill.clipboard.convert({html: enhanced});
+    quill.setContents(delta, 'user');
+
+    // Flash the editor green briefly to confirm
+    const host = document.getElementById('step-instr-editor-' + stepId);
+    if (host) {
+      host.style.transition = 'outline .2s';
+      host.style.outline = '2px solid #30D158';
+      setTimeout(() => { host.style.outline = ''; }, 1200);
+    }
+    showToast('✦ AI enhanced — review and save');
+  } catch(err) {
+    alert('Enhance error: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = orig; btn.disabled = false; }
+  }
 }
 
 // ── Annotation editor ────────────────────────────────────────
@@ -5117,6 +5286,9 @@ async function annSave() {
   if (_annContext.type === 'session') {
     const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
     if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
+  } else if (_annContext.type === 'step') {
+    // Refresh just this step's thumbnails — the file is already in the repo
+    await loadGuide(_annContext.guideId || currentGuideId);
   } else {
     await repoLoad();
   }
