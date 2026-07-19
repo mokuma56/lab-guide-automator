@@ -86,6 +86,24 @@ def _avfoundation_devices() -> list[str]:
 # Recording control
 # ─────────────────────────────────────────────────────────────
 
+def start_screenshot_session(
+    session_id: str,
+    output_dir: Path,
+) -> RecordingSession:
+    """
+    Create a screenshot-only session (no ffmpeg process).
+    Screenshots are taken manually via take_screenshot().
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return RecordingSession(
+        session_id=session_id,
+        output_dir=output_dir,
+        video_path=output_dir / "no_video",   # placeholder, never written
+        audio=False,
+        _proc=None,
+    )
+
+
 def start_recording(
     session_id: str,
     output_dir: Path,
@@ -150,13 +168,14 @@ def start_recording(
     return session
 
 
-def stop_recording(session: RecordingSession) -> Path:
+def stop_recording(session: RecordingSession) -> Path | None:
     """
-    Stop the recording. Returns path to the output .mp4.
+    Stop the recording. Returns path to the output .mp4, or None for
+    screenshot-only sessions (no ffmpeg process).
     Sends 'q' to ffmpeg stdin to trigger clean shutdown.
     """
     if session._proc is None:
-        raise RuntimeError("No recording process attached to this session.")
+        return None   # screenshot-only session — nothing to stop
     if session._proc.poll() is not None:
         # already stopped
         return session.video_path
