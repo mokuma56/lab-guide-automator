@@ -5462,17 +5462,20 @@ function openSessAnnotateDirect(sid, filename) {
   const annImg  = new Image();
   annImg.crossOrigin = 'anonymous';
   annImg.onload = () => {
-    const maxW = window.innerWidth  * 0.9;
-    const maxH = window.innerHeight * 0.82;
-    let w = annImg.naturalWidth, h = annImg.naturalHeight;
-    const scale = Math.min(1, maxW / w, maxH / h);
-    w = Math.round(w * scale); h = Math.round(h * scale);
-    canvas.width  = w; canvas.height  = h;
-    overlay.width = w; overlay.height = h;
-    canvas.style.width  = w + 'px'; canvas.style.height  = h + 'px';
-    overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
+    const cv  = document.getElementById('ann-canvas');
+    const ov  = document.getElementById('ann-overlay');
+    const maxW = Math.floor(window.innerWidth  * 0.90);
+    const maxH = Math.floor(window.innerHeight * 0.82);
+    const scale = Math.min(1, maxW / annImg.naturalWidth, maxH / annImg.naturalHeight);
+    const w = Math.round(annImg.naturalWidth  * scale);
+    const h = Math.round(annImg.naturalHeight * scale);
+    cv.width = ov.width = w;
+    cv.height = ov.height = h;
+    cv.style.width  = ov.style.width  = w + 'px';
+    cv.style.height = ov.style.height = h + 'px';
     _annImgSrc = url;
-    _annCtx().drawImage(annImg, 0, 0, w, h);
+    cv.getContext('2d').drawImage(annImg, 0, 0, w, h);
+    _annBindEvents(ov);   // <-- wire up mouse/touch events
   };
   annImg.onerror = () => {
     document.getElementById('ann-canvas').getContext('2d')
