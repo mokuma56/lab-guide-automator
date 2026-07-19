@@ -1,0 +1,114 @@
+{
+  "id": "38b7b8f3-c4c1-48a3-85fc-bbcd0f2f9b08",
+  "metadata": {
+    "title": "Lab Guide Automator Walkthrough",
+    "subtitle": "",
+    "version": "1.0",
+    "author": "",
+    "date": "2026-07-18",
+    "lab_duration_minutes": 60,
+    "difficulty": "intermediate",
+    "tags": [],
+    "prerequisites": []
+  },
+  "introduction": "The Lab Guide Automator Walkthrough introduces you to a powerful tool designed to streamline the creation of technical lab guides through intelligent automation. In this lab, you will explore an interface that leverages the capabilities of Claude Sonnet 4.6 within OpenCode to generate structured, reproducible documentation with minimal manual effort. By the end of this walkthrough, you will have a clear understanding of how the automator interprets tasks, generates supporting scripts, and integrates with version control workflows.\n\nAt the heart of this lab is the combination of OpenCode and Claude Sonnet 4.6, an AI-assisted development environment paired with one of Anthropic's most capable language models. You will examine a Python recording script that the system generates automatically, giving you insight into how the automator translates high-level instructions into executable, well-structured code. This hands-on review bridges the gap between AI-generated output and real-world technical documentation needs.\n\nUnderstanding this workflow matters because documentation is often one of the most time-consuming aspects of technical work, yet it is critical for reproducibility, onboarding, and knowledge transfer. By automating the generation of lab guides and supporting assets, teams can maintain consistency and accuracy while dramatically reducing the overhead associated with manual authoring. The final step of verifying a recent Git push reinforces how this tool fits naturally into modern development and DevOps pipelines, making it a practical addition to any technical team's toolkit.",
+  "learning_objectives": [
+    {
+      "id": "8a0de21c",
+      "text": "Identify the key components of the Lab Guide Automator interface and their functions",
+      "bloom_level": "remember"
+    },
+    {
+      "id": "e2310a1c",
+      "text": "Explain how OpenCode integrates with Claude Sonnet 4.6 to support automated lab guide generation",
+      "bloom_level": "understand"
+    },
+    {
+      "id": "24b30e71",
+      "text": "Operate the Lab Guide Automator by launching OpenCode with Claude Sonnet 4.6 to initiate a recording session",
+      "bloom_level": "apply"
+    },
+    {
+      "id": "5422b455",
+      "text": "Analyze the generated Python recording script to determine its structure, logic, and role in the automation workflow",
+      "bloom_level": "analyze"
+    },
+    {
+      "id": "dbd42b54",
+      "text": "Verify the integrity of a recent Git push by inspecting background terminal output and evaluating the success of the version control operation",
+      "bloom_level": "evaluate"
+    }
+  ],
+  "sections": [
+    {
+      "id": "0088d1dd",
+      "title": "Getting Started with the Lab Guide Automator",
+      "overview": "Familiarize yourself with the Lab Guide Automator interface and launch OpenCode with Claude Sonnet 4.6.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "0f4cee5f",
+          "order": 1,
+          "title": "Review the Lab Guide Automator Interface",
+          "instruction": "Open Chrome and navigate to `localhost:5051`. Verify the Lab Guide Automator web app is running and displays the '(TEDC24) Unlock the Potential of Cisco...' lab guide (v0.4 Draft, 6 sections, 26 steps) in the Content tab.",
+          "expected_result": "The Lab Guide Automator is visible with the TEDC24 lab guide loaded in the browser.",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "d96a7def",
+          "order": 2,
+          "title": "Open OpenCode with Claude Sonnet 4.6",
+          "instruction": "Switch to the OpenCode editor and confirm an agentic session is running with Claude Sonnet 4.6. Verify the MCP servers panel on the right shows `context7`, `kubernetes`, `netbox`, `obsidian`, and `pod-automator` as Connected (note: `meraki` may show a connection error).",
+          "expected_result": "The OpenCode AI context panel displays Claude Sonnet 4.6 as active with approximately 123,174 tokens used (62%, ~$36.58 spent) and the listed MCP servers connected.",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "efd033b4",
+      "title": "Reviewing Outputs and Verifying Results",
+      "overview": "Examine the generated Python recording script and confirm the successful git push in the background terminal.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "be3fc34f",
+          "order": 1,
+          "title": "Review the Generated Python Recording Script",
+          "instruction": "In the foreground terminal within OpenCode, review the Python script generated by Claude Sonnet 4.6. The script uses the Lab Guide Automator REST API with the following endpoints: `http://localhost:5051/api/record/start`, `/screenshot`, and `/stop` to programmatically start a recording session, capture 3 screenshots 2 seconds apart, and then stop the session.",
+          "expected_result": "The terminal displays a complete Python script targeting the Lab Guide Automator recording API with the start, screenshot, and stop endpoints clearly visible.",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "31f212fe",
+          "order": 2,
+          "title": "Verify Recent Git Push in Background Terminal",
+          "instruction": "Switch to the background terminal and confirm a recent git push was completed successfully, referencing commit `c551294` with a message indicating updates to 'both KB modals (edit mode)'.",
+          "expected_result": "The background terminal shows a successful git push output with commit hash `c551294` and the KB modals update commit message.",
+          "notes": "",
+          "screenshots": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    }
+  ],
+  "conclusion": "",
+  "topology_image": null,
+  "recording_path": null,
+  "created_at": "2026-07-19T02:28:28.062305",
+  "updated_at": "2026-07-19T02:28:28.063322",
+  "github_repo": "",
+  "github_branch": "main",
+  "last_published": null
+}

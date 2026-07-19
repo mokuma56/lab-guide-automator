@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,7 @@ from export.exporter import (
 )
 from recording.recorder import (
     RecordingSession, start_recording, stop_recording, take_screenshot,
+    list_browser_windows,
 )
 
 app = Flask(__name__)
@@ -35,6 +37,7 @@ settings = Settings()
 
 # ── In-memory state ──────────────────────────────────────────
 _active_sessions: dict[str, RecordingSession] = {}
+_session_window: dict[str, int] = {}   # session_id → pinned CGWindowID (optional)
 _loaded_guides: dict[str, LabGuide] = {}
 _progress_queues: dict[str, queue.Queue] = {}   # job_id → SSE event queue
 
@@ -599,19 +602,31 @@ def api_screenshot():
     try:
         data = request.json or {}
         sid = data.get("session_id", "")
+        # If no session_id given (e.g. hotkey / float panel), use the most recent active session
         session = _active_sessions.get(sid)
         if not session:
-            return jsonify({"error": "No active session"}), 404
-        path, seq = take_screenshot(session, data.get("label", ""))
-        # Also copy into the screenshot repository so it appears in the repo browser
+            running = [s for s in _active_sessions.values() if s.is_running()]
+            if not running:
+                return jsonify({"error": "No active recording session. Start recording first."}), 404
+            session = running[-1]
+        wid = _session_window.get(session.session_id)
+        path, seq = take_screenshot(session, data.get("label", ""), window_id=wid)
+        import shutil as _shutil
+        dest = _ss_dir() / path.name
+        _shutil.copy2(path, dest)
+        # Brief macOS notification so user gets feedback without switching windows
         try:
-            import shutil as _shutil
-            dest = _ss_dir() / path.name
-            _shutil.copy2(path, dest)
+            import subprocess as _sp
+            _sp.Popen([
+                "osascript", "-e",
+                f'display notification "Screenshot {seq} captured" with title "Lab Guide Automator" sound name "Tink"'
+            ])
         except Exception:
             pass
-        return jsonify({"path": str(path), "seq": seq, "elapsed_s": round(session.elapsed, 1),
-                        "repo_filename": path.name})
+        return jsonify({"path": str(path), "seq": seq,
+                        "elapsed_s": round(session.elapsed, 1),
+                        "repo_filename": path.name,
+                        "session_id": session.session_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -623,6 +638,350 @@ def api_record_status():
          "screenshots": len(s.screenshots), "running": s.is_running()}
         for sid, s in _active_sessions.items()
     ])
+
+
+@app.route("/api/sessions")
+def api_list_sessions():
+    """List completed capture sessions, newest first.
+
+    Each entry: {session_id, screenshot_count, recorded_at, folder_path, size_mb}
+    """
+    sessions_root = _data_dir() / "sessions"
+    if not sessions_root.exists():
+        return jsonify([])
+
+    result = []
+    for sid_dir in sorted(sessions_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not sid_dir.is_dir():
+            continue
+        rec_dir = sid_dir / "recording"
+        if not rec_dir.exists():
+            continue
+        shots = sorted(
+            list(rec_dir.glob("step-*.png")) +
+            list(rec_dir.glob("step-*.jpg")) +
+            list(rec_dir.glob("frame_*.jpg"))
+        )
+        if not shots:
+            continue
+        mtime = rec_dir.stat().st_mtime
+        size_bytes = sum(f.stat().st_size for f in shots)
+        result.append({
+            "session_id": sid_dir.name,
+            "screenshot_count": len(shots),
+            "recorded_at": datetime.fromtimestamp(mtime).strftime("%b %d, %Y %H:%M"),
+            "folder_path": str(rec_dir),
+            "size_mb": round(size_bytes / 1_048_576, 1),
+        })
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Browser window listing + per-session window pin
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/windows")
+def api_windows():
+    """Return visible browser windows (id, app, title) via Quartz."""
+    return jsonify(list_browser_windows())
+
+
+@app.route("/api/record/set-window", methods=["POST"])
+def api_set_window():
+    """Pin a CGWindowID to the active session so screenshots target that window."""
+    data = request.json or {}
+    window_id = data.get("window_id")   # None = full screen
+    # Attach to the most recent running session (or a specific one if given)
+    sid = data.get("session_id", "")
+    session = _active_sessions.get(sid)
+    if not session:
+        running = [s for s in _active_sessions.values() if s.is_running()]
+        if running:
+            session = running[-1]
+            sid = session.session_id
+    if window_id is None:
+        _session_window.pop(sid, None)
+    else:
+        _session_window[sid] = int(window_id)
+    return jsonify({"ok": True, "session_id": sid, "window_id": window_id})
+
+
+# ─────────────────────────────────────────────────────────────
+# Floating capture panel — tiny always-on-top popup window
+# Open at http://localhost:5051/capture  (200×180px popup)
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/capture")
+def capture_panel():
+    return r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>📸 Capture</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 12px; user-select: none;
+    display: flex; flex-direction: column;
+    gap: 8px; padding: 12px;
+  }
+  /* Status bar */
+  #status-row { display:flex; align-items:center; justify-content:space-between; }
+  #status { font-size: 11px; color: #8b949e; }
+  #status.recording { color: #f85149; font-weight: 600; }
+  #timer { font-size: 11px; font-variant-numeric: tabular-nums; color: #58a6ff; }
+  #count { font-size: 11px; color: #8b949e; text-align:center; }
+
+  /* Record controls */
+  #rec-row { display:flex; gap:6px; }
+  .btn-rec {
+    flex:1; padding: 7px 0;
+    border: none; border-radius: 6px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-rec:disabled { opacity:.35; cursor:not-allowed; }
+  #btn-start { background:#b91c1c; color:#fff; }
+  #btn-start:hover:not(:disabled) { background:#dc2626; }
+  #btn-stop  { background:#21262d; color:#e6edf3; border:1px solid #30363d; }
+  #btn-stop:hover:not(:disabled)  { background:#30363d; }
+
+  /* Window picker */
+  #win-section { display:flex; flex-direction:column; gap:4px; }
+  #win-section label { font-size: 10px; color: #8b949e; text-transform:uppercase; letter-spacing:.5px; }
+  #win-row { display:flex; gap:4px; }
+  #win-select {
+    flex:1; background:#161b22; border:1px solid #30363d;
+    border-radius:5px; color:#e6edf3; padding:4px 6px;
+    font-size:11px; outline:none; min-width:0;
+  }
+  #win-select:focus { border-color:#58a6ff; }
+  #btn-refresh {
+    background:#21262d; border:1px solid #30363d; border-radius:5px;
+    color:#8b949e; font-size:13px; cursor:pointer; padding:0 7px;
+  }
+  #btn-refresh:hover { color:#e6edf3; }
+  #pin-status { font-size:10px; color:#3fb950; min-height:13px; padding-left:2px; }
+
+  /* Label + capture */
+  #label {
+    background:#161b22; border:1px solid #30363d; border-radius:5px;
+    color:#e6edf3; padding:5px 7px; font-size:11px; outline:none; width:100%;
+  }
+  #label:focus { border-color:#58a6ff; }
+  #label:disabled { opacity:.4; }
+  #btn-shot {
+    width:100%; padding:11px;
+    background:#238636; border:none; border-radius:6px;
+    color:#fff; font-size:15px; font-weight:600; cursor:pointer;
+    transition: background .15s;
+  }
+  #btn-shot:hover:not(:disabled) { background:#2ea043; }
+  #btn-shot:disabled { background:#21262d; color:#484f58; cursor:not-allowed; }
+  #btn-shot:active:not(:disabled) { transform:scale(.97); }
+  #hotkey { font-size:10px; color:#484f58; text-align:center; }
+  #feedback { font-size:11px; color:#f85149; text-align:center; min-height:14px; }
+  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .08s; }
+  hr { border:none; border-top:1px solid #21262d; }
+</style>
+</head>
+<body>
+<div id="flash"></div>
+
+<!-- Status -->
+<div id="status-row">
+  <span id="status">No session</span>
+  <span id="timer"></span>
+</div>
+<div id="count"></div>
+
+<hr>
+
+<!-- Start / Stop recording -->
+<div id="rec-row">
+  <button class="btn-rec" id="btn-start" onclick="startRec()">📸 Start Capture Session</button>
+  <button class="btn-rec" id="btn-stop"  onclick="stopRec()" disabled>⏹ End Session</button>
+</div>
+
+<hr>
+
+<!-- Window picker -->
+<div id="win-section">
+  <label>Capture window</label>
+  <div id="win-row">
+    <select id="win-select" disabled>
+      <option value="">-- Full screen --</option>
+    </select>
+    <button id="btn-refresh" onclick="loadWindows()" title="Refresh">↺</button>
+  </div>
+  <div id="pin-status"></div>
+</div>
+
+<!-- Label + capture -->
+<input id="label" type="text" placeholder="Label (optional, Enter = capture)" disabled>
+<button id="btn-shot" disabled onclick="snap()">📸 Capture</button>
+<div id="hotkey">or press ⌘⇧S from any app</div>
+<div id="feedback"></div>
+
+<script>
+let _sid = null;
+let _running = false;
+let _timer = null;
+let _elapsed = 0;
+
+function fmt(s) {
+  const m = Math.floor(s/60), sec = Math.floor(s%60);
+  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+}
+
+function setRunning(yes, sid) {
+  _running = yes;
+  if (sid) _sid = sid;
+  document.getElementById('btn-start').disabled = yes;
+  document.getElementById('btn-stop').disabled  = !yes;
+  document.getElementById('btn-shot').disabled  = !yes;
+  document.getElementById('label').disabled     = !yes;
+  document.getElementById('win-select').disabled = !yes;
+  const st = document.getElementById('status');
+  st.className = yes ? 'recording' : '';
+  st.textContent = yes ? '● Capturing' : 'No session';
+  if (!yes) {
+    document.getElementById('timer').textContent = '';
+    document.getElementById('count').textContent = '';
+    clearInterval(_timer);
+    _timer = null;
+    _elapsed = 0;
+  }
+}
+
+async function startRec() {
+  document.getElementById('feedback').textContent = '';
+  try {
+    const res = await fetch('/api/record/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({audio: false})
+    });
+    const d = await res.json();
+    if (d.error) { document.getElementById('feedback').textContent = '✗ ' + d.error; return; }
+    setRunning(true, d.session_id);
+    _elapsed = 0;
+    _timer = setInterval(() => {
+      _elapsed++;
+      document.getElementById('timer').textContent = fmt(_elapsed);
+    }, 1000);
+    // Re-pin window if one was already selected
+    await pinWindow();
+  } catch(e) {
+    document.getElementById('feedback').textContent = '✗ ' + e;
+  }
+}
+
+async function stopRec() {
+  if (!_sid) return;
+  try {
+    await fetch('/api/record/stop', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: _sid})
+    });
+  } catch(e) {}
+  setRunning(false, null);
+  _sid = null;
+}
+
+async function loadWindows() {
+  try {
+    const res = await fetch('/api/windows');
+    const wins = await res.json();
+    const sel = document.getElementById('win-select');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- Full screen --</option>';
+    wins.forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = String(w.id);
+      const short = w.title.length > 48 ? w.title.slice(0,46) + '\u2026' : w.title;
+      opt.textContent = w.app + ' \u2014 ' + short;
+      opt.title = w.title;
+      if (String(w.id) === prev) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function pinWindow() {
+  const sel = document.getElementById('win-select');
+  const wid = sel.value ? parseInt(sel.value) : null;
+  try {
+    await fetch('/api/record/set-window', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({window_id: wid, session_id: _sid || ''})
+    });
+    const pinEl = document.getElementById('pin-status');
+    if (wid) {
+      const txt = sel.options[sel.selectedIndex].textContent;
+      pinEl.textContent = '\u2713 ' + txt.slice(0, 42);
+    } else {
+      pinEl.textContent = '';
+    }
+  } catch(e) {}
+}
+
+document.getElementById('win-select').addEventListener('change', pinWindow);
+
+async function snap() {
+  if (!_running) return;
+  const label = document.getElementById('label').value.trim();
+  document.getElementById('label').value = '';
+  const fl = document.getElementById('flash');
+  fl.style.opacity = '1';
+  setTimeout(() => { fl.style.opacity = '0'; }, 80);
+  document.getElementById('feedback').textContent = '';
+  try {
+    const res = await fetch('/api/record/screenshot', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({label, session_id: _sid || ''})
+    });
+    const d = await res.json();
+    if (d.error) {
+      document.getElementById('feedback').textContent = '\u2717 ' + d.error;
+    } else {
+      document.getElementById('count').textContent =
+        d.seq + ' screenshot' + (d.seq !== 1 ? 's' : '');
+    }
+  } catch(e) {
+    document.getElementById('feedback').textContent = '\u2717 Request failed';
+  }
+}
+
+document.getElementById('label').addEventListener('keydown', e => {
+  if (e.key === 'Enter') snap();
+});
+
+// On load: check if there's already an active session (started from dashboard)
+async function syncExistingSession() {
+  try {
+    const res = await fetch('/api/record/status');
+    const list = await res.json();
+    const active = list.find(s => s.running);
+    if (active) {
+      setRunning(true, active.session_id);
+      _elapsed = Math.round(active.elapsed_s);
+      _timer = setInterval(() => {
+        _elapsed++;
+        document.getElementById('timer').textContent = fmt(_elapsed);
+      }, 1000);
+      document.getElementById('count').textContent =
+        active.screenshots + ' screenshot' + (active.screenshots !== 1 ? 's' : '');
+    }
+  } catch(e) {}
+}
+
+loadWindows();
+syncExistingSession();
+</script>
+</body>
+</html>"""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -700,6 +1059,26 @@ def api_screenshot_delete(filename):
     meta.pop(filename, None)
     _save_ss_meta(meta)
     return jsonify({"ok": True})
+
+
+@app.route("/api/screenshots/<filename>/annotate", methods=["POST"])
+def api_screenshot_annotate(filename):
+    """Overwrite a screenshot with an annotated version (base64 PNG from canvas)."""
+    import base64
+    try:
+        data = request.json or {}
+        b64 = data.get("image", "")
+        if not b64:
+            return jsonify({"error": "No image data"}), 400
+        # Strip data-URL prefix if present
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        img_bytes = base64.b64decode(b64)
+        p = _ss_dir() / filename
+        p.write_bytes(img_bytes)
+        return jsonify({"ok": True, "filename": filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/screenshots/<filename>/caption", methods=["POST"])
@@ -1387,6 +1766,9 @@ def _render_html() -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lab Guide Automator</title>
+<!-- Quill rich-text editor -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css">
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 <style>
   :root {
     --bg: #0d1117; --surface: #161b22; --surface2: #1e2530;
@@ -1621,6 +2003,79 @@ def _render_html() -> str:
   .section-collapsed .steps-container { display: none; }
   #no-guide { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; color: var(--text2); text-align: center; }
   #no-guide .big-icon { font-size: 4rem; }
+
+  /* ── Session picker ── */
+  .session-row {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .45rem .6rem; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface2);
+    transition: border-color .15s, background .15s;
+  }
+  .session-row:hover  { border-color: var(--accent); background: #0d1f2d; }
+  .session-row.active { border-color: var(--accent); background: #0d1f2d; box-shadow: 0 0 0 2px rgba(0,188,235,.2); }
+  .session-row .ss-count { font-size:.75rem;color:var(--text2); flex-shrink:0; }
+  .session-row .ss-date  { font-size:.7rem; color:var(--text2); margin-left:auto; flex-shrink:0; }
+  .session-row .ss-id    { font-size:.8rem; font-family:monospace; color:var(--text); }
+
+  /* ── Annotation tool buttons ── */
+  .ann-tool-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 15px; width: 30px; height: 28px;
+    border-radius: 4px; color: var(--text2); display:flex;align-items:center;justify-content:center;
+  }
+  .ann-tool-btn:hover  { background: var(--border); color: var(--text); }
+  .ann-tool-btn.active { background: var(--accent2); color: #fff; }
+
+  /* ── Quill rich-text editor dark theme ── */
+  .ql-toolbar.ql-snow {
+    background: #1e2530; border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0; padding: 4px 6px; flex-wrap: wrap;
+  }
+  .ql-container.ql-snow {
+    background: #161b22; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    font-family: inherit; font-size: 13px; color: var(--text); min-height: 80px;
+  }
+  .ql-editor { min-height: 80px; padding: 8px 10px; color: var(--text); }
+  .ql-editor.ql-blank::before { color: var(--text2); font-style: normal; }
+  .ql-snow .ql-stroke { stroke: var(--text2); }
+  .ql-snow .ql-fill  { fill:   var(--text2); }
+  .ql-snow .ql-picker-label { color: var(--text2); }
+  .ql-snow .ql-picker-options {
+    background: #1e2530; border: 1px solid var(--border); border-radius: 4px;
+  }
+  .ql-snow .ql-picker-item { color: var(--text); }
+  .ql-snow.ql-toolbar button:hover .ql-stroke,
+  .ql-snow .ql-toolbar button:hover .ql-stroke { stroke: var(--accent); }
+  .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: var(--accent); }
+  .ql-snow.ql-toolbar button:hover .ql-fill,
+  .ql-snow .ql-toolbar button:hover .ql-fill   { fill: var(--accent); }
+  .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: var(--accent); }
+  .ql-snow .ql-picker-label:hover,
+  .ql-snow .ql-picker-label.ql-active { color: var(--accent); }
+  .ql-snow .ql-picker-item:hover { color: var(--accent); }
+  /* Emoji picker button in toolbar */
+  .ql-emoji-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text2); font-size: 14px; padding: 3px 5px;
+    line-height: 1; border-radius: 3px;
+  }
+  .ql-emoji-btn:hover { color: var(--accent); }
+  /* Emoji grid popup */
+  .emoji-picker-popup {
+    position: absolute; z-index: 9999;
+    background: #1e2530; border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px;
+    display: grid; grid-template-columns: repeat(8, 28px);
+    gap: 2px; max-height: 200px; overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  }
+  .emoji-picker-popup button {
+    background: none; border: none; cursor: pointer;
+    font-size: 16px; width: 28px; height: 28px;
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+  }
+  .emoji-picker-popup button:hover { background: var(--border); }
 </style>
 </head>
 <body>
@@ -1899,9 +2354,11 @@ def _render_html() -> str:
           <button class="btn btn-rec" id="rec-start-btn" onclick="startRecording()">⏺ Start Recording</button>
           <button class="btn btn-secondary" id="rec-stop-btn" disabled onclick="stopRecording()">⏹ Stop</button>
           <button class="btn btn-secondary" id="rec-screenshot-btn" disabled onclick="takeScreenshot()">📸 Screenshot</button>
+          <button class="btn btn-secondary" id="rec-float-btn" onclick="openCapturePanel()" title="Open a small floating panel you can keep on screen while working in another app">⧉ Float Panel</button>
         </div>
         <div style="margin-top:.5rem;font-size:.75rem;color:var(--text2)">
-          Click <strong>Screenshot</strong> at each key step — screenshots are auto-tagged <code>step-001</code>, <code>step-002</code>, … in sequence and attached to guide steps during ingestion.
+          Click <strong>Screenshot</strong> at each key step — or press <kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.7rem">⌘⇧S</kbd> from any app.
+          Use <strong>Float Panel</strong> to keep the capture button visible while working in another window.
         </div>
         <div id="rec-result" style="margin-top:1rem;display:none" class="progress-box"></div>
       </div>
@@ -1970,23 +2427,40 @@ def _render_html() -> str:
         </div>
       </div>
 
-      <!-- Ingest screenshots -->
+      <!-- Ingest screenshots — recent sessions picker + file upload fallback -->
       <div class="card">
-        <div class="card-title"><span class="icon">🖼️</span> Ingest Screenshots</div>
-        <div class="drop-zone" id="ss-drop-zone" onclick="document.getElementById('ss-file-input').click()" ondragover="onDragOver(event,'ss-drop-zone')" ondragleave="onDragLeave('ss-drop-zone')" ondrop="onDropScreenshots(event)">
-          <div class="drop-icon">🖼️</div>
-          <div class="drop-label">Click to browse or drag & drop your screenshots</div>
-          <div class="drop-sub">Select multiple PNG/JPG files — order by filename</div>
+        <div class="card-title"><span class="icon">🖼️</span> Ingest Screenshots into a Guide</div>
+
+        <!-- Recent sessions -->
+        <div style="margin-bottom:.75rem">
+          <div style="font-size:.75rem;color:var(--text2);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.4px">
+            Recent capture sessions
+            <button onclick="loadSessions()" style="background:none;border:none;color:var(--accent);font-size:.75rem;cursor:pointer;margin-left:.5rem">↺ Refresh</button>
+          </div>
+          <div id="session-list" style="display:flex;flex-direction:column;gap:.4rem;max-height:220px;overflow-y:auto">
+            <div style="color:var(--text2);font-size:.8rem">Loading sessions…</div>
+          </div>
+        </div>
+
+        <div style="font-size:.75rem;color:var(--text2);margin:.5rem 0;text-align:center">— or upload screenshots directly —</div>
+
+        <!-- File upload fallback -->
+        <div class="drop-zone" id="ss-drop-zone" onclick="document.getElementById('ss-file-input').click()" ondragover="onDragOver(event,'ss-drop-zone')" ondragleave="onDragLeave('ss-drop-zone')" ondrop="onDropScreenshots(event)" style="padding:.75rem">
+          <div class="drop-icon" style="font-size:1.5rem">🖼️</div>
+          <div class="drop-label" style="font-size:.8rem">Click or drag & drop screenshots</div>
+          <div class="drop-sub">PNG / JPG — ordered by filename</div>
           <div class="drop-selected" id="ss-selected"></div>
         </div>
         <input type="file" id="ss-file-input" style="display:none" accept=".png,.jpg,.jpeg" multiple onchange="onScreenshotFilesSelected(this)">
+
+        <!-- Title + ingest button (shared by session picker and file upload) -->
         <div class="form-row" style="margin-top:.75rem">
           <div class="form-group">
             <label>Lab title <span style="color:var(--red)">*</span></label>
             <input type="text" id="ingest-folder-title" placeholder="e.g. BGP Lab">
           </div>
           <div style="display:flex;align-items:flex-end">
-            <button class="btn btn-primary" id="ss-ingest-btn" onclick="ingestScreenshots()" disabled>⚡ Ingest Screenshots</button>
+            <button class="btn btn-primary" id="ss-ingest-btn" onclick="ingestScreenshots()" disabled>⚡ Generate Guide with AI</button>
           </div>
         </div>
       </div>
@@ -2118,6 +2592,73 @@ def _render_html() -> str:
   </div>
 </div>
 
+<!-- Annotation Modal -->
+<div class="modal-overlay" id="modal-annotate" style="background:rgba(0,0,0,.85)">
+  <div style="display:flex;flex-direction:column;width:98vw;height:96vh;background:var(--surface);border-radius:10px;overflow:hidden">
+    <!-- Toolbar -->
+    <div id="ann-toolbar" style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <span style="font-weight:600;font-size:.85rem;color:var(--text2);margin-right:4px">✏️ Annotate</span>
+
+      <!-- Tools -->
+      <div style="display:flex;gap:3px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn active" id="ann-tool-pen"   onclick="annSetTool('pen')"   title="Pen (P)">🖊</button>
+        <button class="ann-tool-btn" id="ann-tool-arrow" onclick="annSetTool('arrow')" title="Arrow (A)">➡️</button>
+        <button class="ann-tool-btn" id="ann-tool-rect"  onclick="annSetTool('rect')"  title="Rectangle (R)">▭</button>
+        <button class="ann-tool-btn" id="ann-tool-text"  onclick="annSetTool('text')"  title="Text (T)">T</button>
+        <button class="ann-tool-btn" id="ann-tool-highlight" onclick="annSetTool('highlight')" title="Highlight (H)">🖍</button>
+      </div>
+
+      <!-- Colour -->
+      <div style="display:flex;gap:3px;align-items:center">
+        <span style="font-size:.7rem;color:var(--text2)">Color</span>
+        <input type="color" id="ann-color" value="#FF3B30" title="Stroke color"
+          style="width:28px;height:26px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;padding:1px">
+      </div>
+
+      <!-- Stroke size -->
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="font-size:.7rem;color:var(--text2)">Size</span>
+        <input type="range" id="ann-size" min="1" max="20" value="3"
+          style="width:70px;accent-color:var(--accent)">
+        <span id="ann-size-label" style="font-size:.7rem;color:var(--text2);width:18px">3</span>
+      </div>
+
+      <!-- Font size (text tool) -->
+      <div id="ann-font-row" style="display:none;gap:4px;align-items:center">
+        <span style="font-size:.7rem;color:var(--text2)">Font</span>
+        <select id="ann-font-size" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:.75rem">
+          <option value="14">14</option><option value="18">18</option>
+          <option value="24" selected>24</option><option value="32">32</option>
+          <option value="40">40</option><option value="56">56</option>
+        </select>
+      </div>
+
+      <!-- Opacity (highlight) -->
+      <div id="ann-opacity-row" style="display:none;gap:4px;align-items:center">
+        <span style="font-size:.7rem;color:var(--text2)">Opacity</span>
+        <input type="range" id="ann-opacity" min="10" max="80" value="35"
+          style="width:60px;accent-color:var(--accent)">
+      </div>
+
+      <div style="flex:1"></div>
+      <button class="btn btn-secondary btn-sm" onclick="annUndo()" title="Undo (Cmd+Z)">↩ Undo</button>
+      <button class="btn btn-secondary btn-sm" onclick="annClear()" title="Clear all annotations">🗑 Clear</button>
+      <button class="btn btn-primary  btn-sm" onclick="annSave()" title="Save & overwrite">💾 Save</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-annotate')">✕ Close</button>
+    </div>
+
+    <!-- Canvas area -->
+    <div id="ann-canvas-wrap" style="flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:12px;background:#111">
+      <div style="position:relative;display:inline-block">
+        <canvas id="ann-canvas" style="display:block;cursor:crosshair;border-radius:4px;box-shadow:0 2px 20px rgba(0,0,0,.6)"></canvas>
+        <canvas id="ann-overlay" style="position:absolute;top:0;left:0;cursor:crosshair;border-radius:4px"></canvas>
+        <!-- Floating text input for text tool -->
+        <textarea id="ann-text-input" style="display:none;position:absolute;background:transparent;border:1px dashed #fff;color:#fff;font-weight:bold;resize:none;outline:none;padding:2px 4px;min-width:80px;min-height:28px;overflow:hidden"></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Screenshot Preview Modal -->
 <div class="modal-overlay" id="modal-ss-preview">
   <div class="modal" style="max-width:90vw;width:auto;text-align:center">
@@ -2174,6 +2715,7 @@ function showMainTab(tab) {
     document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
   });
   if (tab === 'guides' && currentGuideId) loadGuide(currentGuideId);
+  if (tab === 'ingest') loadSessions();
 }
 
 // ── Editor tab switching ──────────────────────────────────────
@@ -2485,24 +3027,24 @@ function renderStep(step, globalNum) {
         ${shots.length === 0 ? '<div style="font-size:.75rem;color:var(--text2)">No screenshots attached. Upload or pick from the repository.</div>' : ''}
       </div>
 
-      <div id="step-edit-${step.id}" style="display:none;margin-top:.75rem">
-        <div class="form-group" style="margin-bottom:.5rem">
-          <label>Title</label>
-          <input type="text" id="step-title-${step.id}" value="${step.title.replace(/"/g,'&quot;')}">
-        </div>
-        <div class="form-group" style="margin-bottom:.5rem">
-          <label>Instruction</label>
-          <textarea id="step-instr-${step.id}" rows="3">${step.instruction}</textarea>
-        </div>
-        <div class="form-group" style="margin-bottom:.5rem">
-          <label>Expected Result</label>
-          <input type="text" id="step-exp-${step.id}" value="${step.expected_result || ''}">
-        </div>
-        <div class="gap-row">
-          <button class="btn btn-primary btn-sm" onclick="saveStepEdit('${step.id}')">Save</button>
-          <button class="btn btn-secondary btn-sm" onclick="cancelStepEdit('${step.id}')">Cancel</button>
-        </div>
-      </div>
+       <div id="step-edit-${step.id}" style="display:none;margin-top:.75rem">
+         <div class="form-group" style="margin-bottom:.5rem">
+           <label>Title</label>
+           <input type="text" id="step-title-${step.id}" value="${step.title.replace(/"/g,'&quot;')}">
+         </div>
+         <div class="form-group" style="margin-bottom:.5rem">
+           <label>Instruction</label>
+           <div id="step-instr-editor-${step.id}" class="quill-host"></div>
+         </div>
+         <div class="form-group" style="margin-bottom:.5rem">
+           <label>Expected Result</label>
+           <input type="text" id="step-exp-${step.id}" value="${step.expected_result || ''}">
+         </div>
+         <div class="gap-row">
+           <button class="btn btn-primary btn-sm" onclick="saveStepEdit('${step.id}')">Save</button>
+           <button class="btn btn-secondary btn-sm" onclick="cancelStepEdit('${step.id}')">Cancel</button>
+         </div>
+       </div>
     </div>
   `;
 }
@@ -2529,10 +3071,126 @@ function toggleSection(header) {
     header.closest('.section-block').classList.contains('section-collapsed') ? '▶' : '▼';
 }
 
+// ── Quill editor registry ─────────────────────────────────────
+const _quillEditors = {};   // stepId → Quill instance
+
+// Common emoji set shown in the picker
+const _EMOJIS = [
+  '✅','❌','⚠️','ℹ️','📝','📌','🔑','💡','🚀','🎯','🔧','⚙️',
+  '🖥️','💻','📱','🌐','🔒','🔓','📂','📁','📊','📈','📉','🗂️',
+  '✔️','➡️','⬆️','⬇️','🔄','♻️','🛑','✋','👉','👆','👇','👋',
+  '1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟',
+  '🌟','⭐','💥','🎉','🎊','🏁','🔔','📣','💬','🗣️','📧','📞',
+];
+
+let _emojiPickerTarget = null;   // active Quill instance
+let _emojiPickerEl = null;
+
+function _getOrCreateEmojiPicker() {
+  if (!_emojiPickerEl) {
+    _emojiPickerEl = document.createElement('div');
+    _emojiPickerEl.className = 'emoji-picker-popup';
+    _emojiPickerEl.style.display = 'none';
+    _EMOJIS.forEach(em => {
+      const btn = document.createElement('button');
+      btn.textContent = em;
+      btn.title = em;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (_emojiPickerTarget) {
+          const range = _emojiPickerTarget.getSelection(true);
+          const idx = range ? range.index : _emojiPickerTarget.getLength() - 1;
+          _emojiPickerTarget.insertText(idx, em, 'user');
+          _emojiPickerTarget.setSelection(idx + em.length, 0, 'silent');
+        }
+        _hideEmojiPicker();
+      };
+      _emojiPickerEl.appendChild(btn);
+    });
+    document.body.appendChild(_emojiPickerEl);
+    document.addEventListener('click', (e) => {
+      if (_emojiPickerEl && !_emojiPickerEl.contains(e.target)) _hideEmojiPicker();
+    });
+  }
+  return _emojiPickerEl;
+}
+
+function _showEmojiPicker(btn, quill) {
+  const picker = _getOrCreateEmojiPicker();
+  _emojiPickerTarget = quill;
+  const rect = btn.getBoundingClientRect();
+  picker.style.display = 'grid';
+  picker.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
+  picker.style.left = (rect.left  + window.scrollX)      + 'px';
+}
+function _hideEmojiPicker() {
+  if (_emojiPickerEl) _emojiPickerEl.style.display = 'none';
+  _emojiPickerTarget = null;
+}
+
+function _initQuill(stepId, htmlContent) {
+  const host = document.getElementById('step-instr-editor-' + stepId);
+  if (!host) return null;
+
+  // Destroy previous instance if any
+  if (_quillEditors[stepId]) {
+    try { _quillEditors[stepId] = null; } catch(e) {}
+    host.innerHTML = '';
+  }
+
+  const quill = new Quill(host, {
+    theme: 'snow',
+    placeholder: 'Write instruction…',
+    modules: {
+      toolbar: {
+        container: [
+          [{ header: [1, 2, 3, false] }],
+          [{ size: ['small', false, 'large', 'huge'] }],
+          ['bold', 'italic', 'underline', 'strike'],
+          [{ color: [] }, { background: [] }],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['code-block', 'blockquote'],
+          ['link'],
+          ['clean'],
+        ],
+      },
+    },
+  });
+
+  // Inject initial HTML content
+  if (htmlContent && htmlContent.trim()) {
+    const delta = quill.clipboard.convert({ html: htmlContent });
+    quill.setContents(delta, 'silent');
+  }
+
+  // Append custom emoji button to toolbar
+  const toolbar = host.querySelector('.ql-toolbar');
+  if (toolbar) {
+    const emojiBtn = document.createElement('button');
+    emojiBtn.className = 'ql-emoji-btn';
+    emojiBtn.title = 'Insert emoji';
+    emojiBtn.textContent = '😊';
+    emojiBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      _showEmojiPicker(emojiBtn, quill);
+    };
+    toolbar.appendChild(emojiBtn);
+  }
+
+  _quillEditors[stepId] = quill;
+  return quill;
+}
+
 // ── Inline step editing ───────────────────────────────────────
 function editStepInline(stepId) {
   document.getElementById('step-edit-' + stepId).style.display = 'block';
   document.getElementById('step-' + stepId).classList.add('editing');
+  // Find the current instruction for this step and init the editor
+  const step = currentGuide && currentGuide.sections
+    ? currentGuide.sections.flatMap(s => s.steps).find(s => s.id === stepId)
+    : null;
+  setTimeout(() => _initQuill(stepId, step ? (step.instruction || '') : ''), 30);
 }
 function cancelStepEdit(stepId) {
   document.getElementById('step-edit-' + stepId).style.display = 'none';
@@ -2540,14 +3198,305 @@ function cancelStepEdit(stepId) {
 }
 async function saveStepEdit(stepId) {
   const title = document.getElementById('step-title-' + stepId).value.trim();
-  const instr = document.getElementById('step-instr-' + stepId).value;
-  const exp = document.getElementById('step-exp-' + stepId).value;
+  const exp   = document.getElementById('step-exp-' + stepId).value;
+  // Get HTML from Quill; fall back to empty string
+  const quill = _quillEditors[stepId];
+  const instr = quill ? quill.getSemanticHTML() : '';
   await fetch(`/api/guides/${currentGuideId}/step/${stepId}`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({title, instruction: instr, expected_result: exp}),
   });
   await loadGuide(currentGuideId);
 }
+
+// ── Annotation editor ────────────────────────────────────────
+let _annFilename = '';
+let _annTool = 'pen';
+let _annHistory = [];      // array of ImageData snapshots for undo
+let _annDrawing = false;
+let _annStart = {x:0, y:0};
+let _annTextEl = null;
+
+function annSetTool(tool) {
+  _annTool = tool;
+  document.querySelectorAll('.ann-tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('ann-tool-' + tool).classList.add('active');
+  document.getElementById('ann-font-row').style.display    = tool === 'text'      ? 'flex' : 'none';
+  document.getElementById('ann-opacity-row').style.display = tool === 'highlight' ? 'flex' : 'none';
+  // Commit any open text box
+  _annCommitText();
+}
+
+function _annCtx()     { return document.getElementById('ann-canvas').getContext('2d'); }
+function _annOvCtx()   { return document.getElementById('ann-overlay').getContext('2d'); }
+function _annCanvas()  { return document.getElementById('ann-canvas'); }
+function _annOverlay() { return document.getElementById('ann-overlay'); }
+
+function _annPos(e) {
+  const cv = _annOverlay();
+  const rect = cv.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: (clientX - rect.left) * (cv.width / rect.width),
+           y: (clientY - rect.top)  * (cv.height / rect.height) };
+}
+
+function _annPushHistory() {
+  const cv = _annCanvas();
+  _annHistory.push(_annCtx().getImageData(0, 0, cv.width, cv.height));
+  if (_annHistory.length > 40) _annHistory.shift();
+}
+
+function annUndo() {
+  if (!_annHistory.length) return;
+  const cv = _annCanvas();
+  _annCtx().putImageData(_annHistory.pop(), 0, 0);
+}
+
+function annClear() {
+  _annPushHistory();
+  const cv = _annCanvas();
+  // Redraw only the base image
+  const img = new Image();
+  img.onload = () => { _annCtx().drawImage(img, 0, 0, cv.width, cv.height); };
+  img.src = _annImgSrc;
+}
+
+let _annImgSrc = '';
+
+function repoAnnotate(ev, filename, url) {
+  ev.stopPropagation();
+  _annFilename = filename;
+  _annImgSrc   = url;
+  _annHistory  = [];
+  const modal = document.getElementById('modal-annotate');
+  modal.classList.add('open');
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const cv  = _annCanvas();
+    const ov  = _annOverlay();
+    // Scale to fit viewport (max 90vw / 85vh)
+    const maxW = Math.floor(window.innerWidth  * 0.90);
+    const maxH = Math.floor(window.innerHeight * 0.82);
+    const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
+    const w = Math.round(img.naturalWidth  * scale);
+    const h = Math.round(img.naturalHeight * scale);
+    cv.width = ov.width = w;
+    cv.height = ov.height = h;
+    _annCtx().drawImage(img, 0, 0, w, h);
+    _annBindEvents(ov);
+  };
+  img.onerror = () => {
+    // Fallback: try direct URL without cache-busting
+    img.src = url;
+  };
+  img.src = url + '?_=' + Date.now();
+}
+
+function _annBindEvents(ov) {
+  // Remove old listeners by cloning
+  const fresh = ov.cloneNode(true);
+  ov.parentNode.replaceChild(fresh, ov);
+
+  fresh.addEventListener('mousedown',  _annOnDown);
+  fresh.addEventListener('mousemove',  _annOnMove);
+  fresh.addEventListener('mouseup',    _annOnUp);
+  fresh.addEventListener('mouseleave', _annOnUp);
+  fresh.addEventListener('click',      _annOnClick);
+}
+
+function _annOnDown(e) {
+  if (_annTool === 'text') return;
+  _annCommitText();
+  _annDrawing = true;
+  _annStart = _annPos(e);
+  if (_annTool === 'pen' || _annTool === 'highlight') {
+    _annPushHistory();
+    const ctx = _annCtx();
+    const color = document.getElementById('ann-color').value;
+    const size  = parseInt(document.getElementById('ann-size').value);
+    if (_annTool === 'highlight') {
+      const opacity = parseInt(document.getElementById('ann-opacity').value) / 100;
+      ctx.globalAlpha = opacity;
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = size * 6;
+      ctx.lineCap     = 'square';
+    } else {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = size;
+      ctx.lineCap     = 'round';
+    }
+    ctx.beginPath();
+    ctx.moveTo(_annStart.x, _annStart.y);
+  }
+}
+
+function _annOnMove(e) {
+  if (!_annDrawing) return;
+  const pos = _annPos(e);
+  if (_annTool === 'pen' || _annTool === 'highlight') {
+    const ctx = _annCtx();
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  } else {
+    // Preview shape on overlay
+    const ov  = document.getElementById('ann-overlay');
+    const oct = _annOvCtx();
+    oct.clearRect(0, 0, ov.width, ov.height);
+    const color = document.getElementById('ann-color').value;
+    const size  = parseInt(document.getElementById('ann-size').value);
+    oct.strokeStyle = color;
+    oct.lineWidth   = size;
+    oct.globalAlpha = 1;
+    if (_annTool === 'rect') {
+      oct.strokeRect(_annStart.x, _annStart.y,
+                     pos.x - _annStart.x, pos.y - _annStart.y);
+    } else if (_annTool === 'arrow') {
+      _annDrawArrow(oct, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
+    }
+  }
+}
+
+function _annOnUp(e) {
+  if (!_annDrawing) return;
+  _annDrawing = false;
+  const pos = _annPos(e);
+  if (_annTool === 'rect' || _annTool === 'arrow') {
+    _annPushHistory();
+    const ctx   = _annCtx();
+    const color = document.getElementById('ann-color').value;
+    const size  = parseInt(document.getElementById('ann-size').value);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = size;
+    ctx.globalAlpha = 1;
+    if (_annTool === 'rect') {
+      ctx.strokeRect(_annStart.x, _annStart.y,
+                     pos.x - _annStart.x, pos.y - _annStart.y);
+    } else {
+      _annDrawArrow(ctx, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
+    }
+    // Clear overlay
+    const ov = document.getElementById('ann-overlay');
+    _annOvCtx().clearRect(0, 0, ov.width, ov.height);
+  }
+  if (_annTool === 'pen' || _annTool === 'highlight') {
+    _annCtx().globalAlpha = 1;
+  }
+}
+
+function _annOnClick(e) {
+  if (_annTool !== 'text') return;
+  _annCommitText();
+  const pos  = _annPos(e);
+  const size = parseInt(document.getElementById('ann-font-size').value);
+  const color= document.getElementById('ann-color').value;
+  const ti   = document.getElementById('ann-text-input');
+  _annTextEl = { x: pos.x, y: pos.y, size, color };
+  // Position the floating textarea
+  const ov   = document.getElementById('ann-overlay');
+  const rect = ov.getBoundingClientRect();
+  const scaleX = rect.width  / ov.width;
+  const scaleY = rect.height / ov.height;
+  ti.style.display  = 'block';
+  ti.style.left     = (pos.x * scaleX) + 'px';
+  ti.style.top      = ((pos.y - size) * scaleY) + 'px';
+  ti.style.fontSize = (size * scaleX) + 'px';
+  ti.style.color    = color;
+  ti.value = '';
+  ti.rows  = 1;
+  ti.focus();
+}
+
+function _annCommitText() {
+  const ti = document.getElementById('ann-text-input');
+  if (ti.style.display === 'none' || !_annTextEl) return;
+  const text = ti.value.trim();
+  if (text) {
+    _annPushHistory();
+    const ctx = _annCtx();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle   = _annTextEl.color;
+    ctx.font        = `bold ${_annTextEl.size}px -apple-system, sans-serif`;
+    ctx.textBaseline = 'top';
+    // Multiline support
+    text.split('\\n').forEach((line, i) => {
+      ctx.fillText(line, _annTextEl.x, _annTextEl.y + i * (_annTextEl.size * 1.2));
+    });
+  }
+  ti.style.display = 'none';
+  ti.value = '';
+  _annTextEl = null;
+}
+
+function _annDrawArrow(ctx, x1, y1, x2, y2, color, size) {
+  const angle   = Math.atan2(y2 - y1, x2 - x1);
+  const headLen = Math.max(12, size * 4);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle   = color;
+  ctx.lineWidth   = size;
+  ctx.lineCap     = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  // Arrowhead
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/6),
+             y2 - headLen * Math.sin(angle - Math.PI/6));
+  ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/6),
+             y2 - headLen * Math.sin(angle + Math.PI/6));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+async function annSave() {
+  _annCommitText();
+  const cv  = _annCanvas();
+  const b64 = cv.toDataURL('image/png');
+  const res = await fetch('/api/screenshots/' + _annFilename + '/annotate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({image: b64}),
+  });
+  const d = await res.json();
+  if (d.error) { alert('Save failed: ' + d.error); return; }
+  closeModal('modal-annotate');
+  await repoLoad();
+}
+
+// Stroke size label
+document.addEventListener('DOMContentLoaded', () => {
+  const slider = document.getElementById('ann-size');
+  if (slider) {
+    slider.addEventListener('input', () => {
+      document.getElementById('ann-size-label').textContent = slider.value;
+    });
+  }
+  // Commit text on Enter (Shift+Enter = newline)
+  const ti = document.getElementById('ann-text-input');
+  if (ti) {
+    ti.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _annCommitText(); }
+    });
+  }
+  // Keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    const modal = document.getElementById('modal-annotate');
+    if (!modal || !modal.classList.contains('open')) return;
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); annUndo(); return; }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'p' || e.key === 'P') annSetTool('pen');
+    if (e.key === 'a' || e.key === 'A') annSetTool('arrow');
+    if (e.key === 'r' || e.key === 'R') annSetTool('rect');
+    if (e.key === 't' || e.key === 'T') annSetTool('text');
+    if (e.key === 'h' || e.key === 'H') annSetTool('highlight');
+  });
+});
 
 // ── Screenshot Repository ─────────────────────────────────────
 
@@ -2581,6 +3530,7 @@ function repoRender(items) {
       <img src="${it.url}" alt="${cap}" loading="lazy">
       <div class="repo-ai-badge" title="AI caption">✦</div>
       <div class="repo-thumb-actions">
+        <button class="ss-thumb-btn" title="Annotate" onclick="repoAnnotate(event,'${it.filename}','${it.url}')">✏️</button>
         <button class="ss-thumb-btn" title="AI caption" onclick="repoAiCaption(event,'${it.filename}')">✦ AI</button>
         <button class="ss-thumb-btn" title="Delete" onclick="repoDelete(event,'${it.filename}')">🗑</button>
       </div>
@@ -3366,6 +4316,11 @@ async function _doTakeScreenshot() {
   }
 }
 
+function openCapturePanel() {
+  window.open('/capture', 'capture-panel',
+    'width=240,height=200,resizable=no,menubar=no,toolbar=no,location=no,status=no');
+}
+
 function _showScreenshotToast(seq, elapsed) {
   let toast = document.getElementById('ss-toast');
   if (!toast) {
@@ -3507,13 +4462,59 @@ async function ingestVideo() {
   }
 }
 
+// ── Session picker ────────────────────────────────────────────
+let _selectedSessionPath = null;
+
+async function loadSessions() {
+  const list = document.getElementById('session-list');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    if (!sessions.length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:.8rem">No capture sessions yet. Use the float panel to capture screenshots.</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => `
+      <div class="session-row" id="sr-${s.session_id}" onclick="selectSession('${s.session_id}','${s.folder_path.replace(/'/g,"\\'")}')">
+        <span class="ss-id">${s.session_id}</span>
+        <span class="ss-count">📸 ${s.screenshot_count} screenshot${s.screenshot_count !== 1 ? 's' : ''} · ${s.size_mb} MB</span>
+        <span class="ss-date">${s.recorded_at}</span>
+      </div>`).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--red);font-size:.8rem">Failed to load sessions</div>';
+  }
+}
+
+function selectSession(sid, folderPath) {
+  _selectedSessionPath = folderPath;
+  _ssFiles = null;   // clear any file upload selection
+  document.getElementById('ss-selected').textContent = '';
+  document.querySelectorAll('.session-row').forEach(r => r.classList.remove('active'));
+  const row = document.getElementById('sr-' + sid);
+  if (row) row.classList.add('active');
+  document.getElementById('ss-ingest-btn').disabled = false;
+}
+
 async function ingestScreenshots() {
-  if (!_ssFiles || !_ssFiles.length) { alert('Please select screenshot files first'); return; }
   const title = document.getElementById('ingest-folder-title').value.trim();
   if (!title) { alert('Lab title is required'); return; }
   const card = document.getElementById('ingest-progress-card');
-  const log = document.getElementById('ingest-log');
+  const log  = document.getElementById('ingest-log');
   card.style.display = 'block';
+
+  // Path A: use a selected session directly (no upload needed)
+  if (_selectedSessionPath) {
+    log.innerHTML = '<div class="progress-line">Using captured session screenshots…</div>';
+    startIngestJob('/api/ingest/screenshots', {folder_path: _selectedSessionPath, title});
+    return;
+  }
+
+  // Path B: uploaded files
+  if (!_ssFiles || !_ssFiles.length) {
+    alert('Select a recent session above, or upload screenshot files.');
+    return;
+  }
   log.innerHTML = '<div class="progress-line">Uploading screenshots...</div>';
   try {
     const fd = new FormData();
@@ -3587,12 +4588,71 @@ loadModels();
 # Entry point
 # ─────────────────────────────────────────────────────────────
 
+def _start_hotkey_listener() -> None:
+    """Start a background thread that listens for Cmd+Shift+S (macOS) globally.
+
+    When triggered it fires a screenshot against the most recent active
+    recording session — identical to calling POST /api/record/screenshot
+    without a session_id.  A macOS notification confirms each capture.
+    Falls back silently if pynput is not installed.
+    """
+    try:
+        from pynput import keyboard as _kb
+    except ImportError:
+        print("[hotkey] pynput not installed — global hotkey disabled. "
+              "Run: uv add pynput")
+        return
+
+    _combo = {_kb.Key.cmd, _kb.Key.shift}
+    _pressed: set = set()
+
+    def _on_press(key):
+        _pressed.add(key)
+        # Check for Cmd+Shift+S
+        s_key = (key == _kb.KeyCode.from_char("s") or
+                 getattr(key, "char", None) == "s")
+        if s_key and _combo.issubset(_pressed):
+            _fire_hotkey_screenshot()
+
+    def _on_release(key):
+        _pressed.discard(key)
+
+    def _fire_hotkey_screenshot():
+        running = [s for s in _active_sessions.values() if s.is_running()]
+        if not running:
+            return
+        session = running[-1]
+        try:
+            wid = _session_window.get(session.session_id)
+            path, seq = take_screenshot(session, "hotkey", window_id=wid)
+            import shutil as _sh
+            _sh.copy2(path, _ss_dir() / path.name)
+            # macOS notification
+            subprocess.Popen([
+                "osascript", "-e",
+                f'display notification "Screenshot {seq} saved" '
+                f'with title "Lab Guide Automator" sound name "Tink"'
+            ])
+        except Exception as _e:
+            print(f"[hotkey] screenshot failed: {_e}")
+
+    import threading
+    t = threading.Thread(
+        target=lambda: _kb.Listener(
+            on_press=_on_press, on_release=_on_release).run(),
+        daemon=True, name="hotkey-listener"
+    )
+    t.start()
+    print("[hotkey] Global hotkey Cmd+Shift+S active")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5051)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
+    _start_hotkey_listener()
     print(f"Lab Guide Automator dashboard → http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 

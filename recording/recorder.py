@@ -175,32 +175,190 @@ def stop_recording(session: RecordingSession) -> Path:
     return session.video_path
 
 
+def _applescript_browser_titles(app: str) -> list[str]:
+    """
+    Return ordered window titles for a running browser via AppleScript.
+    Order matches the Quartz window list (front-to-back).
+    Returns [] if the app is not running or AppleScript fails.
+    """
+    # Each script builds a newline-delimited string of the active-tab title
+    # per window.  Using linefeed as a delimiter avoids splitting on commas
+    # that appear inside page titles.
+    scripts: dict[str, str] = {
+        "Google Chrome": (
+            'tell application "Google Chrome"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    set out to out & (title of active tab of w) & linefeed\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+        "Safari": (
+            'tell application "Safari"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    try\n'
+            '      set out to out & (name of current tab of w) & linefeed\n'
+            '    end try\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+        "Firefox": (
+            'tell application "Firefox"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    try\n'
+            '      set out to out & (name of w) & linefeed\n'
+            '    end try\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+        "Arc": (
+            'tell application "Arc"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    try\n'
+            '      set out to out & (title of w) & linefeed\n'
+            '    end try\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+        "Brave Browser": (
+            'tell application "Brave Browser"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    set out to out & (title of active tab of w) & linefeed\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+        "Microsoft Edge": (
+            'tell application "Microsoft Edge"\n'
+            '  set out to ""\n'
+            '  repeat with w in windows\n'
+            '    set out to out & (title of active tab of w) & linefeed\n'
+            '  end repeat\n'
+            '  return out\n'
+            'end tell'
+        ),
+    }
+    script = scripts.get(app)
+    if not script:
+        return []
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=5,
+        )
+        raw = result.stdout.strip()
+        if not raw:
+            return []
+        return [t for t in raw.splitlines() if t.strip()]
+    except Exception:
+        return []
+
+
+def list_browser_windows() -> list[dict]:
+    """
+    Return a list of visible browser windows with their tab titles.
+
+    Uses Quartz to enumerate CGWindowIDs (needed for ``screencapture -l``)
+    and AppleScript to fetch the actual window titles (Chrome/Safari/Firefox
+    don't expose titles to Quartz without Screen Recording permission).
+
+    Each entry: {"id": int, "app": str, "title": str}
+    """
+    try:
+        import Quartz  # type: ignore
+    except ImportError:
+        return []
+
+    BROWSER_APPS = {
+        "Google Chrome", "Safari", "Firefox", "Arc",
+        "Brave Browser", "Microsoft Edge",
+    }
+
+    # Quartz returns windows front-to-back; layer 0 = normal app windows
+    options = (
+        Quartz.kCGWindowListOptionOnScreenOnly
+        | Quartz.kCGWindowListExcludeDesktopElements
+    )
+    raw = Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID) or []
+
+    # Group CGWindowIDs per browser app, preserving front-to-back order
+    from collections import defaultdict
+    app_windows: dict[str, list[int]] = defaultdict(list)
+    for w in raw:
+        owner = w.get("kCGWindowOwnerName", "")
+        if owner not in BROWSER_APPS:
+            continue
+        if w.get("kCGWindowLayer", 99) != 0:
+            continue
+        wid = w.get("kCGWindowNumber")
+        if wid is not None:
+            app_windows[owner].append(int(wid))
+
+    # Fetch titles per app and zip with window IDs
+    result: list[dict] = []
+    for app, wids in app_windows.items():
+        titles = _applescript_browser_titles(app)
+        for i, wid in enumerate(wids):
+            if i < len(titles):
+                title = titles[i]
+            else:
+                title = f"Window {i + 1}"
+            result.append({"id": wid, "app": app, "title": title})
+
+    return result
+
+
 def take_screenshot(
     session: RecordingSession,
     label: str = "",
+    window_id: int | None = None,
 ) -> tuple[Path, int]:
     """
-    Capture a single screenshot PNG using macOS `screencapture`.
+    Capture a single screenshot PNG using macOS ``screencapture``.
 
-    The file is named  step-NNN_<timestamp>.png  where NNN is the 1-based
-    sequence number of this screenshot within the session.  This lets the
-    ingestion pipeline attach screenshots to steps in the correct order
-    without any manual labelling.
+    If *window_id* is given (a CGWindowID from :func:`list_browser_windows`),
+    only that window is captured via ``screencapture -l <id>``.
+    Requires Screen Recording permission in System Settings → Privacy.
+
+    If the window capture fails (e.g. permission not yet granted) it
+    automatically falls back to a full-screen capture so the session is
+    never blocked.  A ``_window_capture_failed`` attribute is set on the
+    session so the caller can surface a warning.
 
     Returns (path, sequence_number).
     """
     _require_macos()
-    seq = len(session.screenshots) + 1          # 1-based before appending
+    seq = len(session.screenshots) + 1
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    # Build filename:  step-001_20260718_143022_123.png
-    # If a custom label is given it is appended for human readability.
     suffix = "_" + re.sub(r"[^\w\-]", "_", label)[:30] if label else ""
     path = session.output_dir / f"step-{seq:03d}{suffix}_{ts}.png"
 
-    subprocess.run(
-        ["screencapture", "-x", str(path)],
-        check=True,
-    )
+    used_window = False
+    if window_id is not None:
+        cmd = ["screencapture", "-x", "-o", "-l", str(window_id), str(path)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and path.exists() and path.stat().st_size > 0:
+            used_window = True
+        else:
+            # Permission denied or window gone — fall back to full screen
+            session._window_capture_failed = True  # type: ignore[attr-defined]
+            path.unlink(missing_ok=True)
+
+    if not used_window:
+        result = subprocess.run(["screencapture", "-x", str(path)], capture_output=True)
+        if result.returncode != 0 or not path.exists() or path.stat().st_size == 0:
+            raise RuntimeError(
+                "screencapture failed. Grant Screen Recording permission: "
+                "System Settings → Privacy & Security → Screen Recording → enable Terminal (or your app)."
+            )
 
     session.screenshots.append(path)
     session.screenshot_times.append(session.elapsed)
