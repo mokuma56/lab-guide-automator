@@ -27,7 +27,8 @@ from export.exporter import (
 )
 from recording.recorder import (
     RecordingSession, start_recording, start_screenshot_session,
-    stop_recording, take_screenshot, list_browser_windows, list_audio_devices,
+    start_audio_session, stop_recording, take_screenshot,
+    list_browser_windows, list_audio_devices,
 )
 
 app = Flask(__name__)
@@ -572,15 +573,23 @@ def api_record_start():
         data = request.json or {}
         sid = str(uuid.uuid4())[:8]
         out_dir = _data_dir() / "sessions" / sid / "recording"
-        mode = data.get("mode", "screenshots")   # "screenshots" | "video"
+        # modes: screenshots | video | combo | audio
+        mode = data.get("mode", "screenshots")
 
         if mode == "video":
+            # video only — no manual screenshots
             session = start_recording(sid, out_dir, audio=data.get("audio", True))
+        elif mode == "combo":
+            # video recording + manual screenshots simultaneously
+            session = start_recording(sid, out_dir, audio=data.get("audio", True))
+        elif mode == "audio":
+            # audio-only recording (no video) + manual screenshots
+            session = start_audio_session(sid, out_dir)
         else:
+            # screenshots only
             session = start_screenshot_session(sid, out_dir)
 
         _active_sessions[sid] = session
-        # Apply window selection immediately if provided
         window_id = data.get("window_id")
         if window_id is not None:
             _session_window[sid] = int(window_id)
@@ -730,30 +739,46 @@ def api_list_sessions():
         )
         if not shots:
             continue
-        # Read name from meta.json if present
+        # Read name/mode from meta.json if present
         meta_path = sid_dir / "meta.json"
         name = sid_dir.name
+        session_mode = "screenshots"
         video_path = None
+        audio_path = None
         try:
             if meta_path.exists():
                 m = json.loads(meta_path.read_text())
                 name = m.get("name", sid_dir.name) or sid_dir.name
+                session_mode = m.get("mode", "screenshots")
                 vp = m.get("video_path")
                 if vp and Path(vp).exists():
-                    video_path = vp
+                    if Path(vp).suffix == ".m4a":
+                        audio_path = vp
+                    else:
+                        video_path = vp
         except Exception:
             pass
+        # Also scan recording dir for mp4/m4a if meta didn't have paths
+        if video_path is None:
+            for f in rec_dir.glob("*.mp4"):
+                video_path = str(f); break
+        if audio_path is None:
+            for f in rec_dir.glob("*.m4a"):
+                audio_path = str(f); break
         mtime = rec_dir.stat().st_mtime
         size_bytes = sum(f.stat().st_size for f in shots)
         result.append({
             "session_id": sid_dir.name,
             "name": name,
+            "mode": session_mode,
             "screenshot_count": len(shots),
             "recorded_at": datetime.fromtimestamp(mtime).strftime("%b %d, %Y %H:%M"),
             "folder_path": str(rec_dir),
             "size_mb": round(size_bytes / 1_048_576, 1),
             "has_video": video_path is not None,
+            "has_audio": audio_path is not None,
             "video_path": video_path,
+            "audio_path": audio_path,
         })
     return jsonify(result)
 
@@ -819,15 +844,46 @@ def api_session_video(sid):
     try:
         meta = json.loads(meta_path.read_text())
         vp = meta.get("video_path")
-        if vp and Path(vp).exists():
+        if vp and Path(vp).exists() and Path(vp).suffix != ".m4a":
             return send_from_directory(str(Path(vp).parent), Path(vp).name)
     except Exception:
         pass
-    # fallback: scan for any mp4 in the recording dir
     rec_dir = _data_dir() / "sessions" / sid / "recording"
     for f in rec_dir.glob("*.mp4"):
         return send_from_directory(str(rec_dir), f.name)
     return jsonify({"error": "No video found"}), 404
+
+
+@app.route("/api/sessions/<sid>/audio")
+def api_session_audio(sid):
+    """Serve the audio recording (.m4a) for a session."""
+    rec_dir = _data_dir() / "sessions" / sid / "recording"
+    for f in rec_dir.glob("*.m4a"):
+        return send_from_directory(str(rec_dir), f.name)
+    return jsonify({"error": "No audio found"}), 404
+
+
+@app.route("/api/sessions/<sid>/screenshots/<filename>/thumb")
+def api_session_screenshot_thumb(sid, filename):
+    """Serve a downscaled thumbnail (max 400px wide) for fast grid display."""
+    import io
+    rec_dir = _data_dir() / "sessions" / sid / "recording"
+    src = rec_dir / filename
+    if not src.exists():
+        return jsonify({"error": "Not found"}), 404
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(src)
+        img.thumbnail((400, 400), PILImage.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82, optimize=True)
+        buf.seek(0)
+        from flask import Response
+        return Response(buf.read(), mimetype="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except ImportError:
+        # Pillow not installed — fall back to serving the original
+        return send_from_directory(str(rec_dir), filename)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -990,7 +1046,9 @@ def capture_panel():
 <!-- Mode toggle -->
 <div class="mode-toggle" id="mode-toggle">
   <button class="mode-btn active" id="mbtn-screenshots" onclick="setMode('screenshots')">📸 Screenshots</button>
-  <button class="mode-btn"        id="mbtn-video"        onclick="setMode('video')">⏺ Record Video</button>
+  <button class="mode-btn"        id="mbtn-video"        onclick="setMode('video')">⏺ Video</button>
+  <button class="mode-btn"        id="mbtn-combo"        onclick="setMode('combo')">🎬+📸 Combo</button>
+  <button class="mode-btn"        id="mbtn-audio"        onclick="setMode('audio')">🎙 Audio</button>
 </div>
 
 <!-- Status row -->
@@ -1028,8 +1086,8 @@ def capture_panel():
 
 <!-- Done banner (shown after video session ends) -->
 <div id="done-banner">
-  ✓ Recording saved!<br>
-  Go to the <strong>Ingest</strong> tab to let AI generate your guide.
+  ✓ Session saved!<br>
+  Go to the <strong>Sessions</strong> tab to review, or <strong>Ingest</strong> to generate your guide.
 </div>
 
 <hr>
@@ -1073,6 +1131,7 @@ def capture_panel():
 <div id="screenshot-controls">
   <input id="label" class="inp" type="text" placeholder="Step label (optional — Enter = capture)" disabled>
   <button id="btn-shot" disabled onclick="snap()">📸 Capture</button>
+  <button id="btn-voice" onclick="toggleVoiceCapture()" title="Say 'Capture' to snap a screenshot" style="background:#21262d;border:1px solid #30363d;border-radius:5px;color:#8b949e;font-size:11px;cursor:pointer;padding:5px 10px;width:100%">🎤 Voice capture: off</button>
   <div id="hotkey">or press ⌘⇧S from any app</div>
 </div>
 
@@ -1080,7 +1139,7 @@ def capture_panel():
 
 <script>
 let _sid    = null;
-let _mode   = 'screenshots';   // 'screenshots' | 'video'
+let _mode   = 'screenshots';   // 'screenshots' | 'video' | 'combo' | 'audio'
 let _paused = false;
 let _running = false;
 let _timer  = null;
@@ -1097,16 +1156,20 @@ function fmt(s) {
 
 // ── Mode toggle ───────────────────────────────────────────────
 function setMode(mode) {
-  if (_running) return;   // can't switch while active
+  if (_running) return;
   _mode = mode;
-  document.getElementById('mbtn-screenshots').classList.toggle('active', mode === 'screenshots');
-  document.getElementById('mbtn-video').classList.toggle('active', mode === 'video');
-  document.getElementById('video-note').style.display        = mode === 'video' ? 'block' : 'none';
-  document.getElementById('screenshot-controls').style.display = mode === 'screenshots' ? 'flex' : 'none';
+  ['screenshots','video','combo','audio'].forEach(m =>
+    document.getElementById('mbtn-' + m).classList.toggle('active', mode === m)
+  );
+  const hasShots = mode === 'screenshots' || mode === 'combo' || mode === 'audio';
+  const hasVideo = mode === 'video' || mode === 'combo';
+  document.getElementById('video-note').style.display           = hasVideo  ? 'block' : 'none';
+  document.getElementById('screenshot-controls').style.display  = hasShots  ? 'flex'  : 'none';
   document.getElementById('screenshot-controls').style.flexDirection = 'column';
-  document.getElementById('screenshot-controls').style.gap  = '6px';
-  const btn = document.getElementById('btn-start');
-  btn.textContent = mode === 'video' ? '⏺ Start Recording' : '📸 Start Session';
+  document.getElementById('screenshot-controls').style.gap      = '6px';
+  const labels = {screenshots: '📸 Start Session', video: '⏺ Start Recording',
+                  combo: '🎬+📸 Start Combo', audio: '🎙 Start Audio Session'};
+  document.getElementById('btn-start').textContent = labels[mode] || '▶ Start';
 }
 
 // ── Session start / stop ──────────────────────────────────────
@@ -1134,16 +1197,17 @@ async function startSession() {
 
 async function stopSession() {
   if (!_sid) return;
+  stopVoiceCapture();   // stop voice listener if active
   try {
     await fetch('/api/record/stop', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({session_id: _sid})
     });
   } catch(e) {}
-  const wasVideo = _mode === 'video';
+  const showBanner = _mode === 'video' || _mode === 'combo' || _mode === 'audio';
   setRunning(false, null, false);
   _sid = null;
-  if (wasVideo) {
+  if (showBanner) {
     document.getElementById('done-banner').style.display = 'block';
   }
 }
@@ -1161,22 +1225,26 @@ function setRunning(yes, sid, paused) {
   document.getElementById('ctrl-row-1').style.display = yes ? 'none' : 'flex';
   document.getElementById('ctrl-row-2').style.display = yes ? 'flex' : 'none';
 
-  // pause/resume only for screenshot mode
-  const showPauseResume = yes && _mode === 'screenshots';
+  // pause/resume only for screenshot / combo / audio modes
+  const hasShots = _mode === 'screenshots' || _mode === 'combo' || _mode === 'audio';
+  const showPauseResume = yes && hasShots;
   const btnPause  = document.getElementById('btn-pause');
   const btnResume = document.getElementById('btn-resume');
   btnPause.style.display  = showPauseResume && !_paused ? 'flex' : 'none';
   btnResume.style.display = showPauseResume && _paused  ? 'flex' : 'none';
 
-  document.getElementById('btn-shot').disabled  = !yes || _paused || _mode === 'video';
-  document.getElementById('label').disabled     = !yes || _paused || _mode === 'video';
-  // window picker stays enabled at all times so user can choose before starting
+  const shotEnabled = yes && !_paused && hasShots;
+  document.getElementById('btn-shot').disabled = !shotEnabled;
+  document.getElementById('label').disabled    = !shotEnabled;
+  // window picker stays enabled at all times
 
   const st = document.getElementById('status');
-  if (!yes)        { st.className = '';       st.textContent = 'No session'; }
-  else if (_paused){ st.className = 'paused'; st.textContent = '⏸ Paused'; }
-  else if (_mode === 'video') { st.className = 'live'; st.textContent = '⏺ Recording'; }
-  else             { st.className = 'live';   st.textContent = '● Capturing'; }
+  if (!yes)         { st.className = '';       st.textContent = 'No session'; }
+  else if (_paused) { st.className = 'paused'; st.textContent = '⏸ Paused'; }
+  else if (_mode === 'video')  { st.className = 'live'; st.textContent = '⏺ Recording'; }
+  else if (_mode === 'combo')  { st.className = 'live'; st.textContent = '🎬+📸 Recording'; }
+  else if (_mode === 'audio')  { st.className = 'live'; st.textContent = '🎙 Recording audio'; }
+  else              { st.className = 'live';   st.textContent = '● Capturing'; }
 
   if (!yes) {
     document.getElementById('timer').textContent = '';
@@ -1350,6 +1418,76 @@ function drawMeter() {
   _micRaf = requestAnimationFrame(drawMeter);
 }
 
+// ── Voice capture ─────────────────────────────────────────────
+let _voiceRecognition = null;
+let _voiceActive = false;
+
+function toggleVoiceCapture() {
+  _voiceActive ? stopVoiceCapture() : startVoiceCapture();
+}
+
+function startVoiceCapture() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    document.getElementById('feedback').textContent = '✗ Voice capture not supported in this browser (use Chrome/Edge)';
+    return;
+  }
+  _voiceRecognition = new SR();
+  _voiceRecognition.continuous     = true;
+  _voiceRecognition.interimResults = true;
+  _voiceRecognition.lang           = 'en-US';
+
+  let _lastSnap = 0;   // debounce: prevent double-fire within 1.5s
+
+  _voiceRecognition.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const transcript = e.results[i][0].transcript.trim().toLowerCase();
+      if (transcript.includes('capture') || transcript.includes('screenshot')) {
+        const now = Date.now();
+        if (now - _lastSnap > 1500) {
+          _lastSnap = now;
+          snap();
+          // brief flash on the voice button so user knows it fired
+          const btn = document.getElementById('btn-voice');
+          btn.style.background = '#1a4731';
+          setTimeout(() => { if (_voiceActive) btn.style.background = '#0d2b1f'; }, 400);
+        }
+      }
+    }
+  };
+
+  _voiceRecognition.onerror = (e) => {
+    if (e.error !== 'no-speech') {
+      document.getElementById('feedback').textContent = '✗ Voice error: ' + e.error;
+      stopVoiceCapture();
+    }
+  };
+
+  _voiceRecognition.onend = () => {
+    // auto-restart if still active (browser stops after silence)
+    if (_voiceActive) _voiceRecognition.start();
+  };
+
+  _voiceRecognition.start();
+  _voiceActive = true;
+  const btn = document.getElementById('btn-voice');
+  btn.textContent  = '🎤 Voice capture: listening…';
+  btn.style.color  = '#3fb950';
+  btn.style.borderColor = '#238636';
+  btn.style.background  = '#0d2b1f';
+}
+
+function stopVoiceCapture() {
+  _voiceActive = false;
+  if (_voiceRecognition) { try { _voiceRecognition.stop(); } catch(e){} _voiceRecognition = null; }
+  const btn = document.getElementById('btn-voice');
+  if (!btn) return;
+  btn.textContent   = '🎤 Voice capture: off';
+  btn.style.color   = '#8b949e';
+  btn.style.borderColor = '#30363d';
+  btn.style.background  = '#21262d';
+}
+
 // ── Sync existing session on load ─────────────────────────────
 async function syncExistingSession() {
   try {
@@ -1466,13 +1604,34 @@ def api_screenshot_annotate(filename):
         b64 = data.get("image", "")
         if not b64:
             return jsonify({"error": "No image data"}), 400
-        # Strip data-URL prefix if present
         if "," in b64:
             b64 = b64.split(",", 1)[1]
         img_bytes = base64.b64decode(b64)
         p = _ss_dir() / filename
         p.write_bytes(img_bytes)
         return jsonify({"ok": True, "filename": filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<sid>/screenshots/<filename>/annotate", methods=["POST"])
+def api_session_screenshot_annotate(sid, filename):
+    """Overwrite a session screenshot with an annotated version (base64 PNG)."""
+    import base64
+    try:
+        data = request.json or {}
+        b64 = data.get("image", "")
+        if not b64:
+            return jsonify({"error": "No image data"}), 400
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        img_bytes = base64.b64decode(b64)
+        rec_dir = _data_dir() / "sessions" / sid / "recording"
+        p = rec_dir / filename
+        if not p.exists():
+            return jsonify({"error": "File not found"}), 404
+        p.write_bytes(img_bytes)
+        return jsonify({"ok": True, "sid": sid, "filename": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -3115,9 +3274,12 @@ def _render_html() -> str:
 <!-- Screenshot Preview Modal -->
 <div class="modal-overlay" id="modal-ss-preview">
   <div class="modal" style="max-width:90vw;width:auto;text-align:center">
-    <img id="ss-preview-img" src="" style="max-width:85vw;max-height:75vh;border-radius:6px">
+    <img id="ss-preview-img" src="" style="max-width:85vw;max-height:70vh;border-radius:6px;display:block;margin:0 auto">
     <div id="ss-preview-cap" style="margin-top:.75rem;font-size:.85rem;color:var(--text2)"></div>
-    <button class="btn btn-secondary" style="margin-top:1rem" onclick="closeModal('modal-ss-preview')">Close</button>
+    <div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem">
+      <button class="btn btn-primary btn-sm" onclick="sessPreviewAnnotate()">✏️ Annotate</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-ss-preview')">Close</button>
+    </div>
   </div>
 </div>
 
@@ -3694,7 +3856,7 @@ async function saveStepEdit(stepId) {
 
 // ── Annotation editor ────────────────────────────────────────
 let _annFilename = '';
-let _annTool = 'pen';
+let _annContext  = {type: 'repo', sid: null};  // 'repo' | 'session'
 let _annHistory = [];      // array of ImageData snapshots for undo
 let _annDrawing = false;
 let _annStart = {x:0, y:0};
@@ -3942,14 +4104,24 @@ async function annSave() {
   _annCommitText();
   const cv  = _annCanvas();
   const b64 = cv.toDataURL('image/png');
-  const res = await fetch('/api/screenshots/' + _annFilename + '/annotate', {
+  const url = _annContext.type === 'session'
+    ? '/api/sessions/' + _annContext.sid + '/screenshots/' + _annFilename + '/annotate'
+    : '/api/screenshots/' + _annFilename + '/annotate';
+  const res = await fetch(url, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({image: b64}),
   });
   const d = await res.json();
   if (d.error) { alert('Save failed: ' + d.error); return; }
   closeModal('modal-annotate');
-  await repoLoad();
+  // Refresh the right view after save
+  if (_annContext.type === 'session') {
+    // reload thumbnails for this session if visible
+    const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
+    if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
+  } else {
+    await repoLoad();
+  }
 }
 
 // Stroke size label
@@ -5094,14 +5266,28 @@ async function loadSessionsTab() {
     sessions.forEach(s => { _sessData[s.session_id] = s; });
 
     grid.innerHTML = sessions.map(s => {
-      const badge = s.has_video
-        ? '<span style="background:#1d3461;color:#93c5fd;border-radius:3px;padding:1px 6px;font-size:.7rem;margin-left:.4rem">🎬 Video</span>'
-        : '<span style="background:#1a2f1a;color:#86efac;border-radius:3px;padding:1px 6px;font-size:.7rem;margin-left:.4rem">📸 Screenshots</span>';
-      const detail = s.has_video
-        ? '🎬 video · ' + s.size_mb + ' MB'
-        : '📸 ' + s.screenshot_count + ' screenshot' + (s.screenshot_count !== 1 ? 's' : '') + ' · ' + s.size_mb + ' MB';
+      const modeLabels = {screenshots:'📸 Screenshots', video:'🎬 Video',
+                          combo:'🎬+📸 Combo', audio:'🎙 Audio'};
+      const modeBg     = {screenshots:'#1a2f1a', video:'#1d3461', combo:'#2a1f40', audio:'#1a2535'};
+      const modeFg     = {screenshots:'#86efac', video:'#93c5fd', combo:'#c4b5fd', audio:'#7dd3fc'};
+      const m = s.mode || (s.has_video ? 'video' : 'screenshots');
+      const badge = '<span style="background:' + (modeBg[m]||'#333') + ';color:' + (modeFg[m]||'#ccc') +
+        ';border-radius:3px;padding:1px 6px;font-size:.7rem;margin-left:.4rem">' + (modeLabels[m]||m) + '</span>';
+      const detail = s.screenshot_count + ' shot' + (s.screenshot_count !== 1 ? 's' : '') +
+        (s.has_video ? ' · video' : '') + (s.has_audio ? ' · 🎙 audio' : '') +
+        ' · ' + s.size_mb + ' MB';
 
-      const videoActions = s.has_video
+      const videoEl = s.has_video
+        ? '<video controls style="width:100%;max-height:140px;border-radius:4px;margin-top:.4rem;background:#000">' +
+            '<source src="/api/sessions/' + s.session_id + '/video">' +
+          '</video>'
+        : '';
+      const audioEl = s.has_audio
+        ? '<audio controls style="width:100%;margin-top:.4rem">' +
+            '<source src="/api/sessions/' + s.session_id + '/audio" type="audio/mp4">' +
+          '</audio>'
+        : '';
+      const videoIngestBtn = s.has_video
         ? '<div style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem;flex-wrap:wrap">' +
             '<span style="font-size:.75rem;color:var(--text2)">Frame every</span>' +
             '<input type="number" id="fi-' + s.session_id + '" value="5" min="1" max="30" step="1"' +
@@ -5110,14 +5296,7 @@ async function loadSessionsTab() {
             '<button class="btn btn-ai btn-sm" data-action="ingest-video" data-sid="' + s.session_id + '">🎬 Generate Guide</button>' +
           '</div>'
         : '';
-
-      const thumbsRow = s.has_video
-        ? (s.video_path
-            ? '<video controls style="width:100%;max-height:160px;border-radius:4px;margin-top:.4rem;background:#000">' +
-                '<source src="/api/sessions/' + s.session_id + '/video">' +
-              '</video>'
-            : '')
-        : '<button class="btn btn-secondary btn-sm" data-action="show-thumbs" data-sid="' + s.session_id + '">Show screenshots ▸</button>';
+      const thumbsRow = '<button class="btn btn-secondary btn-sm" data-action="show-thumbs" data-sid="' + s.session_id + '">Show screenshots ▸</button>';
 
       return '<div class="card" id="sess-card-' + s.session_id + '" style="padding:.75rem">' +
         '<div style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.4rem">' +
@@ -5134,7 +5313,7 @@ async function loadSessionsTab() {
             '<button class="btn btn-secondary btn-sm" data-action="delete" data-sid="' + s.session_id + '" title="Delete" style="color:#f85149">🗑</button>' +
           '</div>' +
         '</div>' +
-        videoActions +
+        videoEl + audioEl + videoIngestBtn +
         '<div id="sess-thumbs-' + s.session_id + '" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:.4rem">' +
           thumbsRow +
         '</div>' +
@@ -5174,10 +5353,10 @@ async function loadSessionThumbs(sid) {
     }
     wrap.innerHTML =
       shots.map(sh =>
-        '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '"' +
+        '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '/thumb"' +
         ' title="' + sh.filename + '"' +
         ' data-action="preview-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
-        ' style="height:72px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover">'
+        ' style="height:90px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover">'
       ).join('') +
       '<button class="btn btn-secondary btn-sm" data-action="hide-thumbs" data-sid="' + sid + '" style="align-self:flex-start;margin-top:2px">▴ Hide</button>';
   } catch(e) {
@@ -5194,9 +5373,45 @@ function hideSessThumb(sid) {
 function openSessPreview(sid, filename) {
   const img = document.getElementById('ss-preview-img');
   const cap = document.getElementById('ss-preview-cap');
-  if (img) img.src = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
+  const url = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
+  if (img) img.src = url;
   if (cap) cap.textContent = filename;
+  // store for Annotate button
+  img.dataset.sid      = sid;
+  img.dataset.filename = filename;
   document.getElementById('modal-ss-preview').classList.add('open');
+}
+
+function sessPreviewAnnotate() {
+  const img      = document.getElementById('ss-preview-img');
+  const sid      = img.dataset.sid;
+  const filename = img.dataset.filename;
+  if (!sid || !filename) return;
+  closeModal('modal-ss-preview');
+  // open annotation modal wired to this session screenshot
+  _annFilename = filename;
+  _annContext  = {type: 'session', sid};
+  _annImgSrc   = img.src;
+  _annHistory  = [];
+  const modal  = document.getElementById('modal-annotate');
+  modal.classList.add('open');
+  const canvas  = document.getElementById('ann-canvas');
+  const overlay = document.getElementById('ann-overlay');
+  const annImg  = new Image();
+  annImg.crossOrigin = 'anonymous';
+  annImg.onload = () => {
+    const maxW = window.innerWidth  * 0.9;
+    const maxH = window.innerHeight * 0.82;
+    let w = annImg.naturalWidth, h = annImg.naturalHeight;
+    const scale = Math.min(1, maxW / w, maxH / h);
+    w = Math.round(w * scale); h = Math.round(h * scale);
+    canvas.width  = w; canvas.height  = h;
+    overlay.width = w; overlay.height = h;
+    canvas.style.width  = w + 'px'; canvas.style.height  = h + 'px';
+    overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
+    _annCtx().drawImage(annImg, 0, 0, w, h);
+  };
+  annImg.src = img.src + '?nocache=' + Date.now();
 }
 
 async function ingestVideoSession(sid, videoPath) {

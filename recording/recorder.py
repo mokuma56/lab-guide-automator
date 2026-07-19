@@ -123,6 +123,48 @@ def start_screenshot_session(
     )
 
 
+def start_audio_session(
+    session_id: str,
+    output_dir: Path,
+    audio_device_index: int = 0,
+) -> RecordingSession:
+    """
+    Audio-only recording session (no screen video).
+    Records mic to an .m4a file alongside screenshots.
+    Screenshots are taken manually via take_screenshot().
+    """
+    _require_macos()
+    if not _ffmpeg_available():
+        raise RuntimeError("ffmpeg is not installed. Install with: brew install ffmpeg")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    audio_path = output_dir / f"audio_{timestamp}.m4a"
+
+    cmd = [
+        _ffmpeg_bin(), "-y",
+        "-f", "avfoundation",
+        "-i", f"none:{audio_device_index}",
+        "-c:a", "aac", "-b:a", "128k",
+        str(audio_path),
+    ]
+
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    return RecordingSession(
+        session_id=session_id,
+        output_dir=output_dir,
+        video_path=audio_path,   # reuse field — points to .m4a
+        audio=True,
+        _proc=proc,
+    )
+
+
 def start_recording(
     session_id: str,
     output_dir: Path,
