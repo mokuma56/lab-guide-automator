@@ -2693,6 +2693,9 @@ def _render_html() -> str:
   }
   .ann-tool-btn:hover  { background: var(--border); color: var(--text); }
   .ann-tool-btn.active { background: var(--accent2); color: #fff; }
+  .ann-swatch { width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.25);cursor:pointer;flex-shrink:0;display:inline-block;transition:transform .1s; }
+  .ann-swatch:hover { transform:scale(1.25); }
+  .ann-sel-info { font-size:.7rem;color:#58a6ff;padding:0 6px;background:rgba(88,166,255,.12);border-radius:4px;border:1px solid rgba(88,166,255,.3);white-space:nowrap; }
 
   /* ── Quill rich-text editor dark theme ── */
   .ql-toolbar.ql-snow {
@@ -3260,64 +3263,111 @@ def _render_html() -> str:
 <div class="modal-overlay" id="modal-annotate" style="background:rgba(0,0,0,.85)">
   <div style="display:flex;flex-direction:column;width:98vw;height:96vh;background:var(--surface);border-radius:10px;overflow:hidden">
     <!-- Toolbar -->
-    <div id="ann-toolbar" style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
-      <span style="font-weight:600;font-size:.85rem;color:var(--text2);margin-right:4px">✏️ Annotate</span>
+    <div id="ann-toolbar" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap;min-height:44px">
+      <span style="font-weight:600;font-size:.82rem;color:var(--text2);margin-right:2px">✏️ Annotate</span>
 
-      <!-- Tools -->
-      <div style="display:flex;gap:3px;background:var(--bg);border-radius:5px;padding:2px">
-        <button class="ann-tool-btn active" id="ann-tool-pen"   onclick="annSetTool('pen')"   title="Pen (P)">🖊</button>
-        <button class="ann-tool-btn" id="ann-tool-arrow" onclick="annSetTool('arrow')" title="Arrow (A)">➡️</button>
-        <button class="ann-tool-btn" id="ann-tool-rect"  onclick="annSetTool('rect')"  title="Rectangle (R)">▭</button>
-        <button class="ann-tool-btn" id="ann-tool-text"  onclick="annSetTool('text')"  title="Text (T)">T</button>
-        <button class="ann-tool-btn" id="ann-tool-highlight" onclick="annSetTool('highlight')" title="Highlight (H)">🖍</button>
+      <!-- Select -->
+      <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn" id="ann-tool-select" onclick="annSetTool('select')" title="Select / Move / Resize (S)">↖</button>
       </div>
 
-      <!-- Colour -->
+      <!-- Freehand -->
+      <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn active" id="ann-tool-pen"       onclick="annSetTool('pen')"       title="Pen (P)">🖊</button>
+        <button class="ann-tool-btn"        id="ann-tool-highlight" onclick="annSetTool('highlight')" title="Highlight (H)">🖍</button>
+      </div>
+
+      <!-- Shapes -->
+      <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn" id="ann-tool-line"   onclick="annSetTool('line')"   title="Line (L)">╱</button>
+        <button class="ann-tool-btn" id="ann-tool-arrow"  onclick="annSetTool('arrow')"  title="Arrow (A)">➡️</button>
+        <button class="ann-tool-btn" id="ann-tool-rect"   onclick="annSetTool('rect')"   title="Rectangle (R)">▭</button>
+        <button class="ann-tool-btn" id="ann-tool-circle" onclick="annSetTool('circle')" title="Ellipse (C)">○</button>
+      </div>
+
+      <!-- Text -->
+      <div style="display:flex;gap:2px;background:var(--bg);border-radius:5px;padding:2px">
+        <button class="ann-tool-btn" id="ann-tool-text" onclick="annSetTool('text')" title="Text (T)">T</button>
+      </div>
+
+      <div style="width:1px;height:22px;background:var(--border);flex-shrink:0"></div>
+
+      <!-- Color -->
       <div style="display:flex;gap:3px;align-items:center">
-        <span style="font-size:.7rem;color:var(--text2)">Color</span>
-        <input type="color" id="ann-color" value="#FF3B30" title="Stroke color"
-          style="width:28px;height:26px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;padding:1px">
+        <span style="font-size:.65rem;color:var(--text2)">Color</span>
+        <input type="color" id="ann-color" value="#FF3B30"
+          style="width:26px;height:24px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;padding:1px"
+          oninput="annSyncColor()">
+        <div style="display:flex;gap:2px;align-items:center">
+          <div class="ann-swatch" style="background:#FF3B30" onclick="annPickColor('#FF3B30')" title="Red"></div>
+          <div class="ann-swatch" style="background:#FF9500" onclick="annPickColor('#FF9500')" title="Orange"></div>
+          <div class="ann-swatch" style="background:#FFCC00" onclick="annPickColor('#FFCC00')" title="Yellow"></div>
+          <div class="ann-swatch" style="background:#30D158" onclick="annPickColor('#30D158')" title="Green"></div>
+          <div class="ann-swatch" style="background:#0A84FF" onclick="annPickColor('#0A84FF')" title="Blue"></div>
+          <div class="ann-swatch" style="background:#BF5AF2" onclick="annPickColor('#BF5AF2')" title="Purple"></div>
+          <div class="ann-swatch" style="background:#FFFFFF" onclick="annPickColor('#FFFFFF')" title="White"></div>
+          <div class="ann-swatch" style="background:#1C1C1E;border-color:#666" onclick="annPickColor('#1C1C1E')" title="Black"></div>
+        </div>
       </div>
 
       <!-- Stroke size -->
-      <div style="display:flex;gap:4px;align-items:center">
-        <span style="font-size:.7rem;color:var(--text2)">Size</span>
-        <input type="range" id="ann-size" min="1" max="20" value="3"
-          style="width:70px;accent-color:var(--accent)">
-        <span id="ann-size-label" style="font-size:.7rem;color:var(--text2);width:18px">3</span>
+      <div style="display:flex;gap:3px;align-items:center">
+        <span style="font-size:.65rem;color:var(--text2)">Size</span>
+        <input type="range" id="ann-size" min="1" max="20" value="3" style="width:60px;accent-color:var(--accent)"
+          oninput="document.getElementById('ann-size-label').textContent=this.value;annSyncSelectedStyle()">
+        <span id="ann-size-label" style="font-size:.7rem;color:var(--text2);width:16px">3</span>
       </div>
 
-      <!-- Font size (text tool) -->
-      <div id="ann-font-row" style="display:none;gap:4px;align-items:center">
-        <span style="font-size:.7rem;color:var(--text2)">Font</span>
-        <select id="ann-font-size" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:.75rem">
-          <option value="14">14</option><option value="18">18</option>
+      <!-- Font size (always visible) -->
+      <div style="display:flex;gap:3px;align-items:center">
+        <span style="font-size:.65rem;color:var(--text2)">Font</span>
+        <select id="ann-font-size" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:.75rem"
+          onchange="annSyncSelectedStyle()">
+          <option value="12">12</option><option value="14">14</option><option value="18">18</option>
           <option value="24" selected>24</option><option value="32">32</option>
-          <option value="40">40</option><option value="56">56</option>
+          <option value="40">40</option><option value="56">56</option><option value="72">72</option>
         </select>
       </div>
 
-      <!-- Opacity (highlight) -->
-      <div id="ann-opacity-row" style="display:none;gap:4px;align-items:center">
-        <span style="font-size:.7rem;color:var(--text2)">Opacity</span>
-        <input type="range" id="ann-opacity" min="10" max="80" value="35"
-          style="width:60px;accent-color:var(--accent)">
+      <!-- Fill (rect/circle) -->
+      <div id="ann-fill-row" style="display:none;gap:3px;align-items:center">
+        <input type="checkbox" id="ann-fill-check" title="Fill shape"
+          style="cursor:pointer" onchange="annSyncSelectedStyle()">
+        <span style="font-size:.65rem;color:var(--text2)">Fill</span>
+        <input type="color" id="ann-fill-color" value="#FF3B30"
+          style="width:26px;height:24px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;padding:1px"
+          oninput="annSyncSelectedStyle()">
+        <input type="range" id="ann-fill-opacity" min="5" max="90" value="25"
+          style="width:50px;accent-color:var(--accent)" title="Fill opacity"
+          oninput="annSyncSelectedStyle()">
       </div>
 
+      <!-- Opacity (highlight) -->
+      <div id="ann-opacity-row" style="display:none;gap:3px;align-items:center">
+        <span style="font-size:.65rem;color:var(--text2)">Opacity</span>
+        <input type="range" id="ann-opacity" min="10" max="80" value="35"
+          style="width:55px;accent-color:var(--accent)">
+      </div>
+
+      <!-- Selection info badge -->
+      <div id="ann-sel-badge" class="ann-sel-info" style="display:none">— nothing selected —</div>
+
       <div style="flex:1"></div>
-      <button class="btn btn-secondary btn-sm" onclick="annUndo()" title="Undo (Cmd+Z)">↩ Undo</button>
+
+      <!-- Actions -->
+      <button class="btn btn-secondary btn-sm" onclick="annUndo()" title="Undo (⌘Z)">↩ Undo</button>
+      <button class="btn btn-secondary btn-sm" id="ann-delete-btn" onclick="annDeleteSelected()" title="Delete selected (Delete key)" style="display:none;color:#f85149">🗑 Del</button>
       <button class="btn btn-secondary btn-sm" onclick="annClear()" title="Clear all annotations">🗑 Clear</button>
-      <button class="btn btn-primary  btn-sm" onclick="annSave()" title="Save & overwrite">💾 Save</button>
+      <button class="btn btn-primary  btn-sm" onclick="annSave()" title="Save (⌘S)">💾 Save</button>
       <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-annotate')">✕ Close</button>
     </div>
 
     <!-- Canvas area -->
     <div id="ann-canvas-wrap" style="flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:12px;background:#111">
       <div style="position:relative;display:inline-block">
-        <canvas id="ann-canvas" style="display:block;cursor:crosshair;border-radius:4px;box-shadow:0 2px 20px rgba(0,0,0,.6)"></canvas>
-        <canvas id="ann-overlay" style="position:absolute;top:0;left:0;cursor:crosshair;border-radius:4px"></canvas>
-        <!-- Floating text input for text tool -->
-        <textarea id="ann-text-input" style="display:none;position:absolute;background:transparent;border:1px dashed #fff;color:#fff;font-weight:bold;resize:none;outline:none;padding:2px 4px;min-width:80px;min-height:28px;overflow:hidden"></textarea>
+        <canvas id="ann-canvas" style="display:block;border-radius:4px;box-shadow:0 2px 20px rgba(0,0,0,.6)"></canvas>
+        <canvas id="ann-overlay" style="position:absolute;top:0;left:0;border-radius:4px"></canvas>
+        <textarea id="ann-text-input" style="display:none;position:absolute;background:transparent;border:1px dashed rgba(255,255,255,.7);color:#fff;font-weight:bold;resize:none;outline:none;padding:2px 4px;min-width:80px;min-height:28px;overflow:hidden;line-height:1.25"></textarea>
       </div>
     </div>
   </div>
@@ -3907,22 +3957,139 @@ async function saveStepEdit(stepId) {
 }
 
 // ── Annotation editor ────────────────────────────────────────
-let _annFilename = '';
-let _annContext  = {type: 'repo', sid: null};  // 'repo' | 'session'
-let _annHistory = [];      // array of ImageData snapshots for undo
-let _annDrawing = false;
-let _annStart = {x:0, y:0};
-let _annTextEl = null;
+// Object-based model: all annotations stored as data objects; canvas
+// is re-rendered from base image + objects on every change.
+// This allows select / move / resize / delete of any annotation.
+
+let _annFilename  = '';
+let _annContext   = {type: 'repo', sid: null};
+let _annBaseImg   = null;      // cached Image — never touched after load
+let _annObjects   = [];        // [{type, ...props}]  — the annotation layer
+let _annObjHist   = [];        // undo stack: JSON snapshots of _annObjects
+let _annSelected  = -1;        // index into _annObjects (-1 = none)
+let _annDragMode  = null;      // null | 'move' | 'resize-N'
+let _annDragOff   = {x:0,y:0}; // mousedown position
+let _annObjSnap   = null;      // deep-copy of object at drag start
+let _annPenPts    = [];        // current freehand stroke points
+let _annDrawing   = false;
+let _annStart     = {x:0,y:0};
+let _annTextEl    = null;
+let _annImgSrc    = '';
+let _annTool      = 'pen';
+
+// ── Toolbar helpers ──────────────────────────────────────────
 
 function annSetTool(tool) {
   _annTool = tool;
-  document.querySelectorAll('.ann-tool-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('ann-tool-' + tool).classList.add('active');
-  document.getElementById('ann-font-row').style.display    = tool === 'text'      ? 'flex' : 'none';
-  document.getElementById('ann-opacity-row').style.display = tool === 'highlight' ? 'flex' : 'none';
-  // Commit any open text box
   _annCommitText();
+  document.querySelectorAll('.ann-tool-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('ann-tool-' + tool);
+  if (btn) btn.classList.add('active');
+
+  const isShape  = ['rect','circle'].includes(tool);
+  const isHL     = tool === 'highlight';
+  const isFree   = ['pen','highlight'].includes(tool);
+
+  document.getElementById('ann-fill-row').style.display    = isShape  ? 'flex' : 'none';
+  document.getElementById('ann-opacity-row').style.display = isHL     ? 'flex' : 'none';
+
+  // Cursor
+  const ov = document.getElementById('ann-overlay');
+  if (ov) ov.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+
+  // Deselect when switching away from select
+  if (tool !== 'select') { _annSelected = -1; _annRefreshSelUI(); _annRenderOverlay(); }
 }
+
+function annPickColor(hex) {
+  document.getElementById('ann-color').value = hex;
+  annSyncColor();
+}
+
+function annSyncColor() {
+  // If something is selected, apply color to it live
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    _annPushHistory();
+    _annObjects[_annSelected].color = document.getElementById('ann-color').value;
+    _annRender();
+  }
+}
+
+function annSyncSelectedStyle() {
+  // Live-update style of selected object when toolbar controls change
+  if (_annSelected < 0 || _annSelected >= _annObjects.length) return;
+  const obj = _annObjects[_annSelected];
+  _annPushHistory();
+  obj.color     = document.getElementById('ann-color').value;
+  obj.lineWidth = parseInt(document.getElementById('ann-size').value);
+  if (obj.type === 'text') obj.fontSize = parseInt(document.getElementById('ann-font-size').value);
+  if (['rect','circle'].includes(obj.type)) {
+    obj.filled      = document.getElementById('ann-fill-check').checked;
+    obj.fillColor   = document.getElementById('ann-fill-color').value;
+    obj.fillOpacity = parseInt(document.getElementById('ann-fill-opacity').value) / 100;
+  }
+  _annRender();
+}
+
+function _annRefreshSelUI() {
+  const badge = document.getElementById('ann-sel-badge');
+  const delBtn = document.getElementById('ann-delete-btn');
+  if (_annSelected < 0 || _annSelected >= _annObjects.length) {
+    if (badge) badge.style.display = 'none';
+    if (delBtn) delBtn.style.display = 'none';
+    return;
+  }
+  const obj = _annObjects[_annSelected];
+  if (badge) { badge.style.display='flex'; badge.textContent = obj.type + ' selected — drag to move, handles to resize'; }
+  if (delBtn) delBtn.style.display = 'inline-flex';
+  // Sync toolbar controls to selected object
+  if (obj.color) document.getElementById('ann-color').value = obj.color;
+  if (obj.lineWidth) { document.getElementById('ann-size').value = obj.lineWidth; document.getElementById('ann-size-label').textContent = obj.lineWidth; }
+  if (obj.fontSize)  document.getElementById('ann-font-size').value = obj.fontSize;
+  document.getElementById('ann-fill-row').style.display = ['rect','circle'].includes(obj.type) ? 'flex' : 'none';
+  document.getElementById('ann-opacity-row').style.display = obj.type === 'highlight' ? 'flex' : 'none';
+  if (['rect','circle'].includes(obj.type)) {
+    document.getElementById('ann-fill-check').checked = !!obj.filled;
+    if (obj.fillColor)   document.getElementById('ann-fill-color').value = obj.fillColor;
+    if (obj.fillOpacity) document.getElementById('ann-fill-opacity').value = Math.round(obj.fillOpacity * 100);
+  }
+}
+
+function annDeleteSelected() {
+  if (_annSelected < 0 || _annSelected >= _annObjects.length) return;
+  _annPushHistory();
+  _annObjects.splice(_annSelected, 1);
+  _annSelected = -1;
+  _annRefreshSelUI();
+  _annRender();
+}
+
+// ── History ──────────────────────────────────────────────────
+
+function _annPushHistory() {
+  _annObjHist.push(JSON.stringify(_annObjects));
+  if (_annObjHist.length > 50) _annObjHist.shift();
+}
+
+function annUndo() {
+  _annCommitText();
+  if (!_annObjHist.length) return;
+  _annObjects = JSON.parse(_annObjHist.pop());
+  _annSelected = -1;
+  _annRefreshSelUI();
+  _annRender();
+}
+
+function annClear() {
+  _annCommitText();
+  _annPushHistory();
+  _annObjects = [];
+  _annSelected = -1;
+  _annRefreshSelUI();
+  _annRender();
+}
+
+// ── Canvas helpers ───────────────────────────────────────────
 
 function _annCtx()     { return document.getElementById('ann-canvas').getContext('2d'); }
 function _annOvCtx()   { return document.getElementById('ann-overlay').getContext('2d'); }
@@ -3930,176 +4097,471 @@ function _annCanvas()  { return document.getElementById('ann-canvas'); }
 function _annOverlay() { return document.getElementById('ann-overlay'); }
 
 function _annPos(e) {
-  const cv = _annOverlay();
-  const rect = cv.getBoundingClientRect();
+  const ov = _annOverlay();
+  const rect = ov.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  return { x: (clientX - rect.left) * (cv.width / rect.width),
-           y: (clientY - rect.top)  * (cv.height / rect.height) };
+  return { x: (clientX - rect.left) * (ov.width  / rect.width),
+           y: (clientY - rect.top)  * (ov.height / rect.height) };
 }
 
-function _annPushHistory() {
-  const cv = _annCanvas();
-  _annHistory.push(_annCtx().getImageData(0, 0, cv.width, cv.height));
-  if (_annHistory.length > 40) _annHistory.shift();
+// ── Render ───────────────────────────────────────────────────
+
+function _annRender() {
+  const cv  = _annCanvas(), ctx = _annCtx();
+  if (_annBaseImg) ctx.drawImage(_annBaseImg, 0, 0, cv.width, cv.height);
+  _annObjects.forEach(obj => _annDrawObj(ctx, obj));
+  _annRenderOverlay();
 }
 
-function annUndo() {
-  if (!_annHistory.length) return;
-  const cv = _annCanvas();
-  _annCtx().putImageData(_annHistory.pop(), 0, 0);
+function _annRenderOverlay() {
+  const ov  = _annOverlay(), oct = _annOvCtx();
+  oct.clearRect(0, 0, ov.width, ov.height);
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    _annDrawHandles(oct, _annBBox(_annObjects[_annSelected]));
+  }
 }
 
-function annClear() {
-  _annPushHistory();
-  const cv = _annCanvas();
-  // Redraw only the base image
-  const img = new Image();
-  img.onload = () => { _annCtx().drawImage(img, 0, 0, cv.width, cv.height); };
-  img.src = _annImgSrc;
+function _annDrawObj(ctx, obj) {
+  ctx.save();
+  ctx.globalAlpha = 1;
+  switch (obj.type) {
+    case 'pen': {
+      if (!obj.points || obj.points.length < 2) break;
+      ctx.strokeStyle = obj.color || '#FF3B30';
+      ctx.lineWidth   = obj.lineWidth || 3;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.beginPath();
+      ctx.moveTo(obj.points[0].x, obj.points[0].y);
+      obj.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+      break;
+    }
+    case 'highlight': {
+      if (!obj.points || obj.points.length < 2) break;
+      ctx.globalAlpha = obj.opacity || 0.35;
+      ctx.strokeStyle = obj.color || '#FFCC00';
+      ctx.lineWidth   = obj.lineWidth || 18;
+      ctx.lineCap     = 'square';
+      ctx.lineJoin    = 'round';
+      ctx.beginPath();
+      ctx.moveTo(obj.points[0].x, obj.points[0].y);
+      obj.points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+      break;
+    }
+    case 'line': {
+      ctx.strokeStyle = obj.color || '#FF3B30';
+      ctx.lineWidth   = obj.lineWidth || 3;
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(obj.x1, obj.y1);
+      ctx.lineTo(obj.x2, obj.y2);
+      ctx.stroke();
+      break;
+    }
+    case 'arrow': {
+      _annDrawArrow(ctx, obj.x1, obj.y1, obj.x2, obj.y2, obj.color || '#FF3B30', obj.lineWidth || 3);
+      break;
+    }
+    case 'rect': {
+      const {x,y,w,h} = _annNormRect(obj);
+      ctx.strokeStyle = obj.color || '#FF3B30';
+      ctx.lineWidth   = obj.lineWidth || 3;
+      if (obj.filled) {
+        const fc = obj.fillColor || obj.color || '#FF3B30';
+        ctx.globalAlpha = obj.fillOpacity != null ? obj.fillOpacity : 0.25;
+        ctx.fillStyle = fc;
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeRect(x, y, w, h);
+      break;
+    }
+    case 'circle': {
+      const {x,y,w,h} = _annNormRect(obj);
+      ctx.strokeStyle = obj.color || '#FF3B30';
+      ctx.lineWidth   = obj.lineWidth || 3;
+      ctx.beginPath();
+      ctx.ellipse(x + w/2, y + h/2, Math.abs(w/2), Math.abs(h/2), 0, 0, Math.PI*2);
+      if (obj.filled) {
+        const fc = obj.fillColor || obj.color || '#FF3B30';
+        ctx.globalAlpha = obj.fillOpacity != null ? obj.fillOpacity : 0.25;
+        ctx.fillStyle = fc;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.stroke();
+      break;
+    }
+    case 'text': {
+      ctx.globalAlpha  = 1;
+      ctx.fillStyle    = obj.color || '#FFFFFF';
+      ctx.font         = `bold ${obj.fontSize||24}px -apple-system,system-ui,sans-serif`;
+      ctx.textBaseline = 'top';
+      (obj.text || '').split('\\n').forEach((line, i) => {
+        ctx.fillText(line, obj.x, obj.y + i * ((obj.fontSize||24) * 1.3));
+      });
+      break;
+    }
+  }
+  ctx.restore();
 }
 
-let _annImgSrc = '';
-
-function repoAnnotate(ev, filename, url) {
-  ev.stopPropagation();
-  _annFilename = filename;
-  _annImgSrc   = url;
-  _annHistory  = [];
-  const modal = document.getElementById('modal-annotate');
-  modal.classList.add('open');
-
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    const cv  = _annCanvas();
-    const ov  = _annOverlay();
-    // Scale to fit viewport (max 90vw / 85vh)
-    const maxW = Math.floor(window.innerWidth  * 0.90);
-    const maxH = Math.floor(window.innerHeight * 0.82);
-    const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
-    const w = Math.round(img.naturalWidth  * scale);
-    const h = Math.round(img.naturalHeight * scale);
-    cv.width = ov.width = w;
-    cv.height = ov.height = h;
-    _annCtx().drawImage(img, 0, 0, w, h);
-    _annBindEvents(ov);
-  };
-  img.onerror = () => {
-    // Fallback: try direct URL without cache-busting
-    img.src = url;
-  };
-  img.src = url + '?_=' + Date.now();
+function _annNormRect(obj) {
+  // Ensure positive w/h (rect/circle drawn in any drag direction)
+  const x = obj.w >= 0 ? obj.x : obj.x + obj.w;
+  const y = obj.h >= 0 ? obj.y : obj.y + obj.h;
+  return {x, y, w: Math.abs(obj.w), h: Math.abs(obj.h)};
 }
+
+// ── Bounding boxes & selection handles ──────────────────────
+
+function _annBBox(obj) {
+  const PAD = 6;
+  switch (obj.type) {
+    case 'rect': case 'circle': {
+      const {x,y,w,h} = _annNormRect(obj);
+      return {x: x-PAD, y: y-PAD, w: w+PAD*2, h: h+PAD*2};
+    }
+    case 'line': case 'arrow': {
+      const mx = Math.min(obj.x1,obj.x2), my = Math.min(obj.y1,obj.y2);
+      return {x: mx-PAD, y: my-PAD,
+              w: Math.abs(obj.x2-obj.x1)+PAD*2, h: Math.abs(obj.y2-obj.y1)+PAD*2};
+    }
+    case 'text': {
+      const fs = obj.fontSize || 24;
+      const lines = (obj.text||'').split('\\n');
+      const maxLen = Math.max(...lines.map(l => l.length), 1);
+      return {x: obj.x-PAD, y: obj.y-PAD, w: maxLen*fs*0.62+PAD*2, h: lines.length*fs*1.3+PAD*2};
+    }
+    case 'pen': case 'highlight': {
+      if (!obj.points || !obj.points.length) return {x:0,y:0,w:0,h:0};
+      const xs = obj.points.map(p=>p.x), ys = obj.points.map(p=>p.y);
+      const lw = (obj.lineWidth||3)/2;
+      return {x: Math.min(...xs)-lw-PAD, y: Math.min(...ys)-lw-PAD,
+              w: Math.max(...xs)-Math.min(...xs)+lw*2+PAD*2,
+              h: Math.max(...ys)-Math.min(...ys)+lw*2+PAD*2};
+    }
+  }
+  return {x:0,y:0,w:0,h:0};
+}
+
+function _annHandles(bb) {
+  // 8 handles: TL TC TR ML MR BL BC BR  (indices 0-7)
+  return [
+    {x: bb.x,           y: bb.y},
+    {x: bb.x+bb.w/2,    y: bb.y},
+    {x: bb.x+bb.w,      y: bb.y},
+    {x: bb.x,           y: bb.y+bb.h/2},
+    {x: bb.x+bb.w,      y: bb.y+bb.h/2},
+    {x: bb.x,           y: bb.y+bb.h},
+    {x: bb.x+bb.w/2,    y: bb.y+bb.h},
+    {x: bb.x+bb.w,      y: bb.y+bb.h},
+  ];
+}
+
+function _annDrawHandles(oct, bb) {
+  const handles = _annHandles(bb);
+  const R = 5;
+  // Selection border
+  oct.save();
+  oct.strokeStyle = '#58a6ff';
+  oct.lineWidth   = 1.5;
+  oct.setLineDash([4, 3]);
+  oct.strokeRect(bb.x, bb.y, bb.w, bb.h);
+  oct.setLineDash([]);
+  // Handles
+  oct.fillStyle   = '#fff';
+  oct.strokeStyle = '#58a6ff';
+  oct.lineWidth   = 1.5;
+  handles.forEach(h => {
+    oct.beginPath();
+    oct.arc(h.x, h.y, R, 0, Math.PI*2);
+    oct.fill();
+    oct.stroke();
+  });
+  oct.restore();
+}
+
+// ── Hit testing ──────────────────────────────────────────────
+
+function _annHitTest(x, y) {
+  const HR = 8; // handle hit radius
+  // Check handles of selected object first
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    const handles = _annHandles(_annBBox(_annObjects[_annSelected]));
+    for (let i = 0; i < handles.length; i++) {
+      if (Math.abs(x - handles[i].x) <= HR && Math.abs(y - handles[i].y) <= HR)
+        return {idx: _annSelected, handle: i};
+    }
+  }
+  // Body hit test (top-most / last drawn first)
+  for (let i = _annObjects.length - 1; i >= 0; i--) {
+    const bb = _annBBox(_annObjects[i]);
+    if (x >= bb.x && x <= bb.x+bb.w && y >= bb.y && y <= bb.y+bb.h)
+      return {idx: i, handle: -1};
+  }
+  return {idx: -1, handle: -1};
+}
+
+// ── Resize helper ────────────────────────────────────────────
+
+function _annApplyResize(obj, snap, handle, dx, dy) {
+  if (['line','arrow'].includes(obj.type)) {
+    // handles: 0 = start endpoint, any other = end endpoint
+    if (handle === 0 || handle === 1 || handle === 3) { obj.x1=snap.x1+dx; obj.y1=snap.y1+dy; }
+    else                                               { obj.x2=snap.x2+dx; obj.y2=snap.y2+dy; }
+    return;
+  }
+  if (['rect','circle'].includes(obj.type)) {
+    let {x,y,w,h} = snap;
+    switch (handle) {
+      case 0: x+=dx; y+=dy; w-=dx; h-=dy; break; // TL
+      case 1:        y+=dy;         h-=dy; break; // TC
+      case 2:        y+=dy; w+=dx;  h-=dy; break; // TR
+      case 3: x+=dx;        w-=dx;         break; // ML
+      case 4:               w+=dx;         break; // MR
+      case 5: x+=dx;        w-=dx;  h+=dy; break; // BL
+      case 6:                       h+=dy; break; // BC
+      case 7:               w+=dx;  h+=dy; break; // BR
+    }
+    obj.x=x; obj.y=y; obj.w=w; obj.h=h;
+    return;
+  }
+  // pen / highlight / text: scale / translate whole object
+  _annMoveObj(obj, snap, dx, dy);
+}
+
+function _annMoveObj(obj, snap, dx, dy) {
+  if (['rect','circle'].includes(obj.type)) {
+    obj.x = snap.x+dx; obj.y = snap.y+dy;
+  } else if (['line','arrow'].includes(obj.type)) {
+    obj.x1=snap.x1+dx; obj.y1=snap.y1+dy;
+    obj.x2=snap.x2+dx; obj.y2=snap.y2+dy;
+  } else if (obj.type === 'text') {
+    obj.x=snap.x+dx; obj.y=snap.y+dy;
+  } else if (['pen','highlight'].includes(obj.type)) {
+    obj.points = snap.points.map(p => ({x: p.x+dx, y: p.y+dy}));
+  }
+}
+
+// ── Event handlers ───────────────────────────────────────────
 
 function _annBindEvents(ov) {
-  // Remove old listeners by cloning
   const fresh = ov.cloneNode(true);
   ov.parentNode.replaceChild(fresh, ov);
-
   fresh.addEventListener('mousedown',  _annOnDown);
   fresh.addEventListener('mousemove',  _annOnMove);
   fresh.addEventListener('mouseup',    _annOnUp);
-  fresh.addEventListener('mouseleave', _annOnUp);
+  fresh.addEventListener('mouseleave', _annOnLeave);
   fresh.addEventListener('click',      _annOnClick);
+  // Touch support
+  fresh.addEventListener('touchstart',  e => { e.preventDefault(); _annOnDown(e); }, {passive:false});
+  fresh.addEventListener('touchmove',   e => { e.preventDefault(); _annOnMove(e); }, {passive:false});
+  fresh.addEventListener('touchend',    e => { e.preventDefault(); _annOnUp(e);   }, {passive:false});
 }
 
 function _annOnDown(e) {
-  if (_annTool === 'text') return;
+  const pos = _annPos(e);
+
+  if (_annTool === 'select') {
+    _annCommitText();
+    const hit = _annHitTest(pos.x, pos.y);
+    if (hit.idx >= 0) {
+      _annSelected = hit.idx;
+      _annDragMode = hit.handle >= 0 ? 'resize-' + hit.handle : 'move';
+      _annDragOff  = {x: pos.x, y: pos.y};
+      _annObjSnap  = JSON.parse(JSON.stringify(_annObjects[hit.idx]));
+      _annDrawing  = true;
+      _annOverlay().style.cursor = hit.handle >= 0 ? 'nwse-resize' : 'move';
+    } else {
+      _annSelected = -1;
+    }
+    _annRefreshSelUI();
+    _annRenderOverlay();
+    return;
+  }
+
+  if (_annTool === 'text') return; // text uses click
+
   _annCommitText();
   _annDrawing = true;
-  _annStart = _annPos(e);
+  _annStart   = pos;
+
   if (_annTool === 'pen' || _annTool === 'highlight') {
-    _annPushHistory();
-    const ctx = _annCtx();
-    const color = document.getElementById('ann-color').value;
-    const size  = parseInt(document.getElementById('ann-size').value);
-    if (_annTool === 'highlight') {
-      const opacity = parseInt(document.getElementById('ann-opacity').value) / 100;
-      ctx.globalAlpha = opacity;
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = size * 6;
-      ctx.lineCap     = 'square';
-    } else {
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = size;
-      ctx.lineCap     = 'round';
-    }
-    ctx.beginPath();
-    ctx.moveTo(_annStart.x, _annStart.y);
+    _annPenPts = [pos];
   }
 }
 
 function _annOnMove(e) {
-  if (!_annDrawing) return;
   const pos = _annPos(e);
-  if (_annTool === 'pen' || _annTool === 'highlight') {
-    const ctx = _annCtx();
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-  } else {
-    // Preview shape on overlay
-    const ov  = document.getElementById('ann-overlay');
-    const oct = _annOvCtx();
-    oct.clearRect(0, 0, ov.width, ov.height);
-    const color = document.getElementById('ann-color').value;
-    const size  = parseInt(document.getElementById('ann-size').value);
-    oct.strokeStyle = color;
-    oct.lineWidth   = size;
-    oct.globalAlpha = 1;
-    if (_annTool === 'rect') {
-      oct.strokeRect(_annStart.x, _annStart.y,
-                     pos.x - _annStart.x, pos.y - _annStart.y);
-    } else if (_annTool === 'arrow') {
-      _annDrawArrow(oct, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
+
+  if (_annTool === 'select') {
+    if (!_annDrawing || _annSelected < 0) {
+      // Update cursor hint
+      const hit = _annHitTest(pos.x, pos.y);
+      const ov = _annOverlay();
+      if (hit.idx >= 0) ov.style.cursor = hit.handle >= 0 ? 'nwse-resize' : 'move';
+      else               ov.style.cursor = 'default';
+      return;
     }
+    const dx = pos.x - _annDragOff.x;
+    const dy = pos.y - _annDragOff.y;
+    const obj = _annObjects[_annSelected];
+    if (_annDragMode === 'move') {
+      _annMoveObj(obj, _annObjSnap, dx, dy);
+    } else {
+      const h = parseInt(_annDragMode.split('-')[1]);
+      _annApplyResize(obj, _annObjSnap, h, dx, dy);
+    }
+    _annRender();
+    return;
   }
+
+  if (!_annDrawing) return;
+
+  if (_annTool === 'pen' || _annTool === 'highlight') {
+    _annPenPts.push(pos);
+    // Draw stroke preview directly on ann-canvas (live feedback)
+    const ctx = _annCtx();
+    ctx.save();
+    if (_annTool === 'highlight') {
+      ctx.globalAlpha = parseFloat(document.getElementById('ann-opacity').value) / 100 || 0.35;
+      ctx.lineWidth   = parseInt(document.getElementById('ann-size').value) * 6;
+      ctx.lineCap     = 'square';
+    } else {
+      ctx.globalAlpha = 1;
+      ctx.lineWidth   = parseInt(document.getElementById('ann-size').value);
+      ctx.lineCap     = 'round';
+    }
+    ctx.strokeStyle = document.getElementById('ann-color').value;
+    ctx.lineJoin    = 'round';
+    if (_annPenPts.length >= 2) {
+      const p0 = _annPenPts[_annPenPts.length-2];
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // Shape preview on overlay
+  const oct = _annOvCtx(), ov = _annOverlay();
+  oct.clearRect(0, 0, ov.width, ov.height);
+  const color = document.getElementById('ann-color').value;
+  const size  = parseInt(document.getElementById('ann-size').value);
+  oct.save();
+  oct.strokeStyle = color; oct.lineWidth = size; oct.globalAlpha = 1;
+  if (_annTool === 'rect') {
+    oct.strokeRect(_annStart.x, _annStart.y, pos.x-_annStart.x, pos.y-_annStart.y);
+    if (document.getElementById('ann-fill-check').checked) {
+      oct.globalAlpha = parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25;
+      oct.fillStyle = document.getElementById('ann-fill-color').value;
+      oct.fillRect(_annStart.x, _annStart.y, pos.x-_annStart.x, pos.y-_annStart.y);
+      oct.globalAlpha = 1;
+    }
+  } else if (_annTool === 'circle') {
+    const cx=(_annStart.x+pos.x)/2, cy=(_annStart.y+pos.y)/2;
+    const rx=Math.abs(pos.x-_annStart.x)/2, ry=Math.abs(pos.y-_annStart.y)/2;
+    oct.beginPath(); oct.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);
+    if (document.getElementById('ann-fill-check').checked) {
+      oct.globalAlpha = parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25;
+      oct.fillStyle = document.getElementById('ann-fill-color').value;
+      oct.fill(); oct.globalAlpha=1;
+    }
+    oct.stroke();
+  } else if (_annTool === 'line') {
+    oct.beginPath(); oct.moveTo(_annStart.x,_annStart.y); oct.lineTo(pos.x,pos.y); oct.stroke();
+  } else if (_annTool === 'arrow') {
+    _annDrawArrow(oct, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
+  }
+  oct.restore();
 }
 
 function _annOnUp(e) {
+  if (_annTool === 'select') {
+    if (_annDrawing && _annSelected >= 0) {
+      _annPushHistory();
+      _annDrawing = false;
+      _annOverlay().style.cursor = 'default';
+      _annRefreshSelUI();
+      _annRender();
+    }
+    _annDrawing = false;
+    return;
+  }
+
   if (!_annDrawing) return;
   _annDrawing = false;
-  const pos = _annPos(e);
-  if (_annTool === 'rect' || _annTool === 'arrow') {
-    _annPushHistory();
-    const ctx   = _annCtx();
-    const color = document.getElementById('ann-color').value;
-    const size  = parseInt(document.getElementById('ann-size').value);
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = size;
-    ctx.globalAlpha = 1;
-    if (_annTool === 'rect') {
-      ctx.strokeRect(_annStart.x, _annStart.y,
-                     pos.x - _annStart.x, pos.y - _annStart.y);
-    } else {
-      _annDrawArrow(ctx, _annStart.x, _annStart.y, pos.x, pos.y, color, size);
-    }
-    // Clear overlay
-    const ov = document.getElementById('ann-overlay');
-    _annOvCtx().clearRect(0, 0, ov.width, ov.height);
-  }
+
+  const pos   = _annPos(e);
+  const color = document.getElementById('ann-color').value;
+  const size  = parseInt(document.getElementById('ann-size').value);
+
   if (_annTool === 'pen' || _annTool === 'highlight') {
-    _annCtx().globalAlpha = 1;
+    if (_annPenPts.length < 2) return;
+    _annPushHistory();
+    _annObjects.push({
+      type: _annTool, points: _annPenPts.slice(),
+      color, lineWidth: _annTool === 'highlight' ? size * 6 : size,
+      opacity: _annTool === 'highlight' ? (parseFloat(document.getElementById('ann-opacity').value)/100||0.35) : 1,
+    });
+    _annPenPts = [];
+    _annRender();
+    return;
+  }
+
+  // Clear overlay shape preview
+  const ov = _annOverlay();
+  _annOvCtx().clearRect(0, 0, ov.width, ov.height);
+
+  const dx = pos.x - _annStart.x, dy = pos.y - _annStart.y;
+  if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return; // ignore clicks
+
+  _annPushHistory();
+  if (_annTool === 'line') {
+    _annObjects.push({type:'line', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size});
+  } else if (_annTool === 'arrow') {
+    _annObjects.push({type:'arrow', x1:_annStart.x, y1:_annStart.y, x2:pos.x, y2:pos.y, color, lineWidth:size});
+  } else if (_annTool === 'rect') {
+    _annObjects.push({type:'rect', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
+      filled: document.getElementById('ann-fill-check').checked,
+      fillColor: document.getElementById('ann-fill-color').value,
+      fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25,
+    });
+  } else if (_annTool === 'circle') {
+    _annObjects.push({type:'circle', x:_annStart.x, y:_annStart.y, w:dx, h:dy, color, lineWidth:size,
+      filled: document.getElementById('ann-fill-check').checked,
+      fillColor: document.getElementById('ann-fill-color').value,
+      fillOpacity: parseFloat(document.getElementById('ann-fill-opacity').value)/100||0.25,
+    });
+  }
+  _annRender();
+}
+
+function _annOnLeave(e) {
+  // Finish shape on leave so partial shapes aren't stuck
+  if (_annDrawing && _annTool !== 'select' && _annTool !== 'pen' && _annTool !== 'highlight') {
+    _annOnUp(e);
   }
 }
 
 function _annOnClick(e) {
   if (_annTool !== 'text') return;
   _annCommitText();
-  const pos  = _annPos(e);
-  const size = parseInt(document.getElementById('ann-font-size').value);
-  const color= document.getElementById('ann-color').value;
-  const ti   = document.getElementById('ann-text-input');
-  _annTextEl = { x: pos.x, y: pos.y, size, color };
-  // Position the floating textarea
-  const ov   = document.getElementById('ann-overlay');
-  const rect = ov.getBoundingClientRect();
+  const pos   = _annPos(e);
+  const size  = parseInt(document.getElementById('ann-font-size').value);
+  const color = document.getElementById('ann-color').value;
+  const ov    = _annOverlay();
+  const rect  = ov.getBoundingClientRect();
   const scaleX = rect.width  / ov.width;
   const scaleY = rect.height / ov.height;
+  const ti = document.getElementById('ann-text-input');
+  _annTextEl = {x: pos.x, y: pos.y, size, color};
   ti.style.display  = 'block';
   ti.style.left     = (pos.x * scaleX) + 'px';
-  ti.style.top      = ((pos.y - size) * scaleY) + 'px';
+  ti.style.top      = ((pos.y - size * 0.15) * scaleY) + 'px';
   ti.style.fontSize = (size * scaleX) + 'px';
   ti.style.color    = color;
   ti.value = '';
@@ -4109,51 +4571,96 @@ function _annOnClick(e) {
 
 function _annCommitText() {
   const ti = document.getElementById('ann-text-input');
-  if (ti.style.display === 'none' || !_annTextEl) return;
+  if (!ti || ti.style.display === 'none' || !_annTextEl) return;
   const text = ti.value.trim();
   if (text) {
     _annPushHistory();
-    const ctx = _annCtx();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle   = _annTextEl.color;
-    ctx.font        = `bold ${_annTextEl.size}px -apple-system, sans-serif`;
-    ctx.textBaseline = 'top';
-    // Multiline support
-    text.split('\\n').forEach((line, i) => {
-      ctx.fillText(line, _annTextEl.x, _annTextEl.y + i * (_annTextEl.size * 1.2));
+    _annObjects.push({
+      type: 'text', x: _annTextEl.x, y: _annTextEl.y,
+      text, color: _annTextEl.color, fontSize: _annTextEl.size,
     });
+    _annRender();
   }
   ti.style.display = 'none';
-  ti.value = '';
+  ti.value  = '';
   _annTextEl = null;
 }
 
+// ── Arrow drawing ────────────────────────────────────────────
+
 function _annDrawArrow(ctx, x1, y1, x2, y2, color, size) {
-  const angle   = Math.atan2(y2 - y1, x2 - x1);
+  const angle   = Math.atan2(y2-y1, x2-x1);
   const headLen = Math.max(12, size * 4);
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle   = color;
-  ctx.lineWidth   = size;
-  ctx.lineCap     = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.stroke();
-  // Arrowhead
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth   = size;  ctx.lineCap   = 'round';
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/6),
-             y2 - headLen * Math.sin(angle - Math.PI/6));
-  ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/6),
-             y2 - headLen * Math.sin(angle + Math.PI/6));
-  ctx.closePath();
-  ctx.fill();
+  ctx.lineTo(x2-headLen*Math.cos(angle-Math.PI/6), y2-headLen*Math.sin(angle-Math.PI/6));
+  ctx.lineTo(x2-headLen*Math.cos(angle+Math.PI/6), y2-headLen*Math.sin(angle+Math.PI/6));
+  ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
+// ── Open annotation modal ────────────────────────────────────
+
+function repoAnnotate(ev, filename, url) {
+  ev.stopPropagation();
+  _annFilename = filename;
+  _annImgSrc   = url;
+  _annContext  = {type: 'repo', sid: null};
+  _annOpenModal(url);
+}
+
+function openSessAnnotateDirect(sid, filename) {
+  const url = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
+  _annFilename = filename;
+  _annImgSrc   = url;
+  _annContext  = {type: 'session', sid};
+  _annOpenModal(url);
+}
+
+function _annOpenModal(url) {
+  _annObjects  = [];
+  _annObjHist  = [];
+  _annSelected = -1;
+  _annPenPts   = [];
+  document.getElementById('ann-sel-badge').style.display  = 'none';
+  document.getElementById('ann-delete-btn').style.display = 'none';
+  annSetTool('pen'); // reset to pen tool
+  document.getElementById('modal-annotate').classList.add('open');
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const cv  = _annCanvas(), ov = _annOverlay();
+    const maxW = Math.floor(window.innerWidth  * 0.90);
+    const maxH = Math.floor(window.innerHeight * 0.82);
+    const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
+    const w = Math.round(img.naturalWidth * scale);
+    const h = Math.round(img.naturalHeight * scale);
+    cv.width = ov.width = w;
+    cv.height = ov.height = h;
+    cv.style.width  = ov.style.width  = w + 'px';
+    cv.style.height = ov.style.height = h + 'px';
+    _annBaseImg = img;
+    _annCtx().drawImage(img, 0, 0, w, h);
+    _annBindEvents(ov);
+  };
+  img.onerror = () => {
+    _annCtx().fillStyle='#f85149';
+    _annCtx().fillText('Image failed to load — ' + url, 10, 30);
+  };
+  img.src = url + '?_=' + Date.now();
+}
+
+// ── Save ─────────────────────────────────────────────────────
+
 async function annSave() {
   _annCommitText();
+  // Final composite: base image + all objects
+  _annRender();
   const cv  = _annCanvas();
   const b64 = cv.toDataURL('image/png');
   const url = _annContext.type === 'session'
@@ -4166,9 +4673,7 @@ async function annSave() {
   const d = await res.json();
   if (d.error) { alert('Save failed: ' + d.error); return; }
   closeModal('modal-annotate');
-  // Refresh the right view after save
   if (_annContext.type === 'session') {
-    // reload thumbnails for this session if visible
     const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
     if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
   } else {
@@ -4176,14 +4681,9 @@ async function annSave() {
   }
 }
 
-// Stroke size label
+// ── Keyboard shortcuts & DOMContentLoaded ───────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
-  const slider = document.getElementById('ann-size');
-  if (slider) {
-    slider.addEventListener('input', () => {
-      document.getElementById('ann-size-label').textContent = slider.value;
-    });
-  }
   // Commit text on Enter (Shift+Enter = newline)
   const ti = document.getElementById('ann-text-input');
   if (ti) {
@@ -4191,15 +4691,20 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _annCommitText(); }
     });
   }
-  // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     const modal = document.getElementById('modal-annotate');
     if (!modal || !modal.classList.contains('open')) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); annUndo(); return; }
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); annSave(); return; }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'Escape')    { _annSelected=-1; _annRefreshSelUI(); _annRenderOverlay(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { annDeleteSelected(); return; }
+    if (e.key === 's' || e.key === 'S') annSetTool('select');
     if (e.key === 'p' || e.key === 'P') annSetTool('pen');
     if (e.key === 'a' || e.key === 'A') annSetTool('arrow');
+    if (e.key === 'l' || e.key === 'L') annSetTool('line');
     if (e.key === 'r' || e.key === 'R') annSetTool('rect');
+    if (e.key === 'c' || e.key === 'C') annSetTool('circle');
     if (e.key === 't' || e.key === 'T') annSetTool('text');
     if (e.key === 'h' || e.key === 'H') annSetTool('highlight');
   });
@@ -5448,40 +5953,6 @@ function sessPreviewAnnotate() {
   if (!sid || !filename) return;
   closeModal('modal-ss-preview');
   openSessAnnotateDirect(sid, filename);
-}
-
-function openSessAnnotateDirect(sid, filename) {
-  // Open annotation canvas directly from a session screenshot (no preview step needed)
-  const url = '/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(filename);
-  _annFilename = filename;
-  _annContext  = {type: 'session', sid};
-  _annHistory  = [];
-  document.getElementById('modal-annotate').classList.add('open');
-  const canvas  = document.getElementById('ann-canvas');
-  const overlay = document.getElementById('ann-overlay');
-  const annImg  = new Image();
-  annImg.crossOrigin = 'anonymous';
-  annImg.onload = () => {
-    const cv  = document.getElementById('ann-canvas');
-    const ov  = document.getElementById('ann-overlay');
-    const maxW = Math.floor(window.innerWidth  * 0.90);
-    const maxH = Math.floor(window.innerHeight * 0.82);
-    const scale = Math.min(1, maxW / annImg.naturalWidth, maxH / annImg.naturalHeight);
-    const w = Math.round(annImg.naturalWidth  * scale);
-    const h = Math.round(annImg.naturalHeight * scale);
-    cv.width = ov.width = w;
-    cv.height = ov.height = h;
-    cv.style.width  = ov.style.width  = w + 'px';
-    cv.style.height = ov.style.height = h + 'px';
-    _annImgSrc = url;
-    cv.getContext('2d').drawImage(annImg, 0, 0, w, h);
-    _annBindEvents(ov);   // <-- wire up mouse/touch events
-  };
-  annImg.onerror = () => {
-    document.getElementById('ann-canvas').getContext('2d')
-      .fillText('Image failed to load', 20, 40);
-  };
-  annImg.src = url + '?nocache=' + Date.now();
 }
 
 async function ingestVideoSession(sid, videoPath) {
