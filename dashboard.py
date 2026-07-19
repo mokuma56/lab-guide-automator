@@ -575,18 +575,18 @@ def api_record_start():
         out_dir = _data_dir() / "sessions" / sid / "recording"
         # modes: screenshots | video | combo | audio
         mode = data.get("mode", "screenshots")
+        audio_device_index = int(data.get("audio_device_index", 0))
 
         if mode == "video":
-            # video only — no manual screenshots
-            session = start_recording(sid, out_dir, audio=data.get("audio", True))
+            session = start_recording(sid, out_dir, audio=data.get("audio", True),
+                                      audio_device_index=audio_device_index)
         elif mode == "combo":
-            # video recording + manual screenshots simultaneously
-            session = start_recording(sid, out_dir, audio=data.get("audio", True))
+            session = start_recording(sid, out_dir, audio=data.get("audio", True),
+                                      audio_device_index=audio_device_index)
         elif mode == "audio":
-            # audio-only recording (no video) + manual screenshots
-            session = start_audio_session(sid, out_dir)
+            session = start_audio_session(sid, out_dir,
+                                          audio_device_index=audio_device_index)
         else:
-            # screenshots only
             session = start_screenshot_session(sid, out_dir)
 
         _active_sessions[sid] = session
@@ -1048,7 +1048,7 @@ def capture_panel():
   <button class="mode-btn active" id="mbtn-screenshots" onclick="setMode('screenshots')">📸 Screenshots</button>
   <button class="mode-btn"        id="mbtn-video"        onclick="setMode('video')">⏺ Video</button>
   <button class="mode-btn"        id="mbtn-combo"        onclick="setMode('combo')">🎬+📸 Combo</button>
-  <button class="mode-btn"        id="mbtn-audio"        onclick="setMode('audio')">🎙 Audio</button>
+  <button class="mode-btn"        id="mbtn-audio"        onclick="setMode('audio')">🎙+📸 Audio</button>
 </div>
 
 <!-- Status row -->
@@ -1168,21 +1168,23 @@ function setMode(mode) {
   document.getElementById('screenshot-controls').style.flexDirection = 'column';
   document.getElementById('screenshot-controls').style.gap      = '6px';
   const labels = {screenshots: '📸 Start Session', video: '⏺ Start Recording',
-                  combo: '🎬+📸 Start Combo', audio: '🎙 Start Audio Session'};
+                  combo: '🎬+📸 Start Combo', audio: '🎙+📸 Start Audio Session'};
   document.getElementById('btn-start').textContent = labels[mode] || '▶ Start';
 }
 
 // ── Session start / stop ──────────────────────────────────────
 async function startSession() {
   const name = document.getElementById('session-name').value.trim() || 'Untitled Session';
-  const winSel = document.getElementById('win-select');
-  const windowId = winSel.value ? parseInt(winSel.value) : null;
+  const winSel    = document.getElementById('win-select');
+  const audioSel  = document.getElementById('audio-device-select');
+  const windowId      = winSel.value   ? parseInt(winSel.value)   : null;
+  const audioDeviceIdx = audioSel.value ? parseInt(audioSel.value) : 0;
   document.getElementById('feedback').textContent = '';
   document.getElementById('done-banner').style.display = 'none';
   try {
     const res = await fetch('/api/record/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({mode: _mode, audio: true, name, window_id: windowId})
+      body: JSON.stringify({mode: _mode, audio: true, name, window_id: windowId, audio_device_index: audioDeviceIdx})
     });
     const d = await res.json();
     if (d.error) { document.getElementById('feedback').textContent = '✗ ' + d.error; return; }
@@ -1243,7 +1245,7 @@ function setRunning(yes, sid, paused) {
   else if (_paused) { st.className = 'paused'; st.textContent = '⏸ Paused'; }
   else if (_mode === 'video')  { st.className = 'live'; st.textContent = '⏺ Recording'; }
   else if (_mode === 'combo')  { st.className = 'live'; st.textContent = '🎬+📸 Recording'; }
-  else if (_mode === 'audio')  { st.className = 'live'; st.textContent = '🎙 Recording audio'; }
+  else if (_mode === 'audio')  { st.className = 'live'; st.textContent = '🎙+📸 Recording'; }
   else              { st.className = 'live';   st.textContent = '● Capturing'; }
 
   if (!yes) {
@@ -1488,6 +1490,34 @@ function stopVoiceCapture() {
   btn.style.background  = '#21262d';
 }
 
+// ── Audio device picker ───────────────────────────────────────
+async function loadAudioDevices() {
+  const sel = document.getElementById('audio-device-select');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/audio-devices');
+    const d   = await res.json();
+    if (!d.devices || !d.devices.length) {
+      sel.innerHTML = '<option value="0">Default microphone</option>';
+      return;
+    }
+    sel.innerHTML = d.devices.map(dev =>
+      '<option value="' + dev.index + '">' + dev.name + '</option>'
+    ).join('');
+    // Try to restore last-used device from localStorage
+    const saved = localStorage.getItem('lastAudioDevice');
+    if (saved) {
+      const opt = sel.querySelector('option[value="' + saved + '"]');
+      if (opt) sel.value = saved;
+    }
+    sel.addEventListener('change', () => {
+      localStorage.setItem('lastAudioDevice', sel.value);
+    });
+  } catch(e) {
+    sel.innerHTML = '<option value="0">Default microphone</option>';
+  }
+}
+
 // ── Sync existing session on load ─────────────────────────────
 async function syncExistingSession() {
   try {
@@ -1509,6 +1539,7 @@ async function syncExistingSession() {
 // initialise
 setMode('screenshots');
 loadWindows();
+loadAudioDevices();
 syncExistingSession();
 </script>
 </body>
@@ -5267,7 +5298,7 @@ async function loadSessionsTab() {
 
     grid.innerHTML = sessions.map(s => {
       const modeLabels = {screenshots:'📸 Screenshots', video:'🎬 Video',
-                          combo:'🎬+📸 Combo', audio:'🎙 Audio'};
+                          combo:'🎬+📸 Combo', audio:'🎙+📸 Audio'};
       const modeBg     = {screenshots:'#1a2f1a', video:'#1d3461', combo:'#2a1f40', audio:'#1a2535'};
       const modeFg     = {screenshots:'#86efac', video:'#93c5fd', combo:'#c4b5fd', audio:'#7dd3fc'};
       const m = s.mode || (s.has_video ? 'video' : 'screenshots');
