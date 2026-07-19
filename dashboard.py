@@ -3119,7 +3119,6 @@ function showMainTab(tab) {
   if (tab === 'guides' && currentGuideId) loadGuide(currentGuideId);
   if (tab === 'ingest') loadSessions();
   if (tab === 'sessions') loadSessionsTab();
-  if (tab === 'record') openCapturePanel();
 }
 
 // ── Editor tab switching ──────────────────────────────────────
@@ -5060,9 +5059,9 @@ async function loadSessionThumbs(sid, folderPath) {
       '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '"' +
       ' title="' + sh.filename + '"' +
       ' style="height:72px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover"' +
-      ' onclick="openSessPreview(\'' + sid + '\',\'' + sh.filename.replace(/'/g,"\\'") + '\')">'
+      ' onclick="openSessPreview(' + JSON.stringify(sid) + ',' + JSON.stringify(sh.filename) + ')">'
     ).join('') +
-    '<button class="btn btn-secondary btn-sm" style="align-self:flex-start;margin-top:2px" onclick="hideSessThumb(\'' + sid + '\')">▴ Hide</button>';
+    '<button class="btn btn-secondary btn-sm" style="align-self:flex-start;margin-top:2px" onclick="hideSessThumb(' + JSON.stringify(sid) + ')">▴ Hide</button>';
   } catch(e) {
     wrap.innerHTML = '<span style="color:var(--red);font-size:.8rem">Failed: ' + e + '</span>';
   }
@@ -5072,7 +5071,7 @@ function hideSessThumb(sid) {
   const wrap = document.getElementById('sess-thumbs-' + sid);
   const folderPath = '';  // not needed for re-showing without path
   if (wrap) wrap.innerHTML =
-    '<button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs(\'' + sid + '\',\'\')">Show screenshots ▸</button>';
+    '<button class="btn btn-secondary btn-sm" onclick="loadSessionThumbs(' + JSON.stringify(sid) + ',' + JSON.stringify('') + ')">Show screenshots \u25b8</button>';
 }
 
 function openSessPreview(sid, filename) {
