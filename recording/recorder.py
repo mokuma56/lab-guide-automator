@@ -344,13 +344,19 @@ def _applescript_browser_titles(app: str) -> list[str]:
 
 def list_browser_windows() -> list[dict]:
     """
-    Return a list of visible browser windows with their tab titles.
+    Return a list of all capturable windows.
 
-    Uses Quartz to enumerate CGWindowIDs (needed for ``screencapture -l``)
-    and AppleScript to fetch the actual window titles (Chrome/Safari/Firefox
-    don't expose titles to Quartz without Screen Recording permission).
+    Browser windows (Chrome/Safari/etc.) are enumerated via AppleScript so
+    ALL windows appear regardless of which tab is currently active.
+    Each browser entry carries app+title so the capture helper can activate
+    the right window before screencapture runs.
 
-    Each entry: {"id": int, "app": str, "title": str}
+    Non-browser visible apps are enumerated via Quartz and captured by
+    CGWindowID (screencapture -l).
+
+    Each entry: {"id": int|None, "app": str, "title": str, "activate": bool}
+      id       – CGWindowID for Quartz-based capture (None for browser windows)
+      activate – True means caller should activate window via AppleScript first
     """
     try:
         import Quartz  # type: ignore
@@ -362,36 +368,35 @@ def list_browser_windows() -> list[dict]:
         "Brave Browser", "Microsoft Edge",
     }
 
-    # Quartz returns windows front-to-back; layer 0 = normal app windows
+    result: list[dict] = []
+
+    # 1. Browser windows via AppleScript (all windows, any tab)
+    for app in BROWSER_APPS:
+        titles = _applescript_browser_titles(app)
+        for title in titles:
+            if title:
+                result.append({"id": None, "app": app, "title": title, "activate": True})
+
+    # 2. Non-browser visible windows via Quartz
     options = (
         Quartz.kCGWindowListOptionOnScreenOnly
         | Quartz.kCGWindowListExcludeDesktopElements
     )
     raw = Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID) or []
-
-    # Group CGWindowIDs per browser app, preserving front-to-back order
-    from collections import defaultdict
-    app_windows: dict[str, list[int]] = defaultdict(list)
     for w in raw:
         owner = w.get("kCGWindowOwnerName", "")
-        if owner not in BROWSER_APPS:
+        if not owner or owner in BROWSER_APPS:
             continue
         if w.get("kCGWindowLayer", 99) != 0:
             continue
         wid = w.get("kCGWindowNumber")
-        if wid is not None:
-            app_windows[owner].append(int(wid))
-
-    # Fetch titles per app and zip with window IDs
-    result: list[dict] = []
-    for app, wids in app_windows.items():
-        titles = _applescript_browser_titles(app)
-        for i, wid in enumerate(wids):
-            if i < len(titles):
-                title = titles[i]
-            else:
-                title = f"Window {i + 1}"
-            result.append({"id": wid, "app": app, "title": title})
+        if wid is None:
+            continue
+        bounds = w.get("kCGWindowBounds") or {}
+        if bounds.get("Width", 0) < 100 or bounds.get("Height", 0) < 100:
+            continue
+        title = (w.get("kCGWindowName") or owner).strip()
+        result.append({"id": int(wid), "app": owner, "title": title, "activate": False})
 
     return result
 

@@ -342,40 +342,176 @@ def api_enhance_text():
         if context:
             system_prompt += f"\n\nSection context: {context}"
 
-        enhanced = _run_async(chat(settings, system_prompt, text))
+        enhanced = _run_async(chat(settings, [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": text},
+        ]))
         return jsonify({"enhanced": enhanced.strip()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/capture/one-shot", methods=["POST"])
+def api_capture_one_shot():
+    """Take a single screenshot (no session required), save to repo screenshots dir.
+    Body: {window_id: int|null, activate_app: str|null, activate_title: str|null}
+      window_id      – CGWindowID for non-browser window capture
+      activate_app   – bring this app's window to front before capturing (browser windows)
+      activate_title – which window title to activate within that app
+    Returns: {filename, url}
+    """
+    try:
+        import subprocess, time
+        data           = request.json or {}
+        wid            = data.get("window_id")
+        activate_app   = data.get("activate_app")
+        activate_title = data.get("activate_title")
+        fname          = f"capture-{uuid.uuid4().hex[:8]}.png"
+        dest           = _ss_dir() / fname
+
+        # For browser windows: activate the window via AppleScript, then full-screen capture
+        if activate_app and activate_title:
+            script = (
+                f'tell application "{activate_app}"\n'
+                f'  activate\n'
+                f'  set found to false\n'
+                f'  repeat with w in windows\n'
+                f'    if title of w contains "{activate_title.replace(chr(34), "")[:60]}" then\n'
+                f'      set index of w to 1\n'
+                f'      set found to true\n'
+                f'      exit repeat\n'
+                f'    end if\n'
+                f'  end repeat\n'
+                f'end tell'
+            )
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            time.sleep(0.5)  # allow window to come to front
+            subprocess.run(["screencapture", "-x", str(dest)], capture_output=True)
+
+        elif wid:
+            cmd = ["screencapture", "-x", "-o", "-l", str(wid), str(dest)]
+            r = subprocess.run(cmd, capture_output=True)
+            if r.returncode != 0 or not dest.exists() or dest.stat().st_size == 0:
+                dest.unlink(missing_ok=True)
+                subprocess.run(["screencapture", "-x", str(dest)], capture_output=True)
+
+        else:
+            subprocess.run(["screencapture", "-x", str(dest)], capture_output=True)
+
+        if not dest.exists() or dest.stat().st_size == 0:
+            raise RuntimeError("screencapture failed — grant Screen Recording permission in System Settings.")
+
+        return jsonify({"filename": fname, "url": f"/api/screenshots/file/{fname}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/guides/<guide_id>/step/<step_id>/capture-attach", methods=["POST"])
 def api_step_capture_attach(guide_id, step_id):
-    """Take a screenshot right now, save to repo, attach to the step.
-    Returns {filename, url} so the client can open the annotator.
+    """Attach an already-captured screenshot (by filename) to a step.
+    Body: {filename: str}  — filename must already exist in the screenshots repo dir.
+    Returns {filename, url}
     """
     try:
-        from recording.recorder import take_screenshot
+        data = request.json or {}
+        fname = data.get("filename")
+        if not fname:
+            return jsonify({"error": "filename required"}), 400
+
         g    = _load_guide(guide_id)
         step = g.get_step(step_id)
         if not step:
             return jsonify({"error": "Step not found"}), 404
 
-        # Capture to a temp path then copy to repo
-        import tempfile, shutil
-        fname  = f"step-capture-{uuid.uuid4().hex[:8]}.png"
-        dest   = _ss_dir() / fname
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td) / "snap.png"
-            take_screenshot(str(tmp))
-            shutil.copy(str(tmp), str(dest))
+        dest = _ss_dir() / fname
+        if not dest.exists():
+            return jsonify({"error": f"Screenshot not found: {fname}"}), 404
 
-        # Attach to step
-        from lab_guide_automator.models import ScreenshotRef
-        step.screenshots.append(ScreenshotRef(path=str(dest), caption=""))
+        from lab_guide_automator.models import StepScreenshot
+        step.screenshots.append(StepScreenshot(path=str(dest), caption=""))
         g.touch()
         _save_guide(g)
 
         return jsonify({"filename": fname, "url": f"/api/screenshots/file/{fname}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/normalize", methods=["POST"])
+def api_section_normalize(guide_id, section_id):
+    """Rewrite all text/callout blocks in a section for consistent tone, grammar, and clean HTML paragraphs."""
+    try:
+        from lab_guide_automator.ai_client import chat
+        g = _load_guide(guide_id)
+        sec = next((s for s in g.sections if s.id == section_id), None)
+        if not sec:
+            return jsonify({"error": "Section not found"}), 404
+
+        # Collect every text/callout block across all steps (and section-level blocks)
+        block_entries = []  # {"id": ..., "type": text|callout, "callout_type": ..., "content": ...}
+        for blk in sec.blocks:
+            if blk.type in ("text", "callout"):
+                block_entries.append({"id": blk.id, "type": blk.type,
+                                      "callout_type": getattr(blk, "callout_type", ""),
+                                      "content": blk.content or ""})
+        for step in sec.steps:
+            for blk in step.blocks:
+                if blk.type in ("text", "callout"):
+                    block_entries.append({"id": blk.id, "type": blk.type,
+                                          "callout_type": getattr(blk, "callout_type", ""),
+                                          "content": blk.content or ""})
+
+        if not block_entries:
+            return jsonify({"updated": 0})
+
+        import json as _json, re as _re
+
+        blocks_json = _json.dumps(block_entries, indent=2)
+        system_prompt = (
+            "You are a professional technical writer editing a Cisco hands-on lab guide. "
+            "You will receive a JSON array of content blocks. Each block has an 'id', 'type' (text or callout), "
+            "optional 'callout_type', and 'content' (HTML). "
+            "Rewrite each block's content so that:\n"
+            "1. Tone is consistent, clear, and imperative (action verbs: Click, Navigate, Select, Notice, etc.).\n"
+            "2. All content is wrapped in proper <p>…</p> paragraphs — no bare text, no <br>-only line breaks.\n"
+            "3. No &nbsp; entities — use normal spaces.\n"
+            "4. No drag-handle characters (⠿) or HTML artifacts.\n"
+            "5. Sentences are complete, concise, and professionally written.\n"
+            "6. Callout blocks are short (1-3 sentences max) and use the appropriate tone for their type "
+            "(note=informational, caution=warning, congratulations=celebratory, expected_result=outcome).\n"
+            "Keep all technical accuracy — do not change product names, UI labels, or instructions. "
+            "Return ONLY a JSON array with the same ids and updated 'content' fields. No commentary."
+        )
+
+        raw = _run_async(chat(settings, [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": blocks_json},
+        ]))
+
+        m = _re.search(r'\[.*\]', raw, _re.DOTALL)
+        if not m:
+            return jsonify({"error": "AI did not return valid JSON"}), 500
+
+        updates = _json.loads(m.group())
+
+        # Build lookup of all blocks by id
+        all_blocks = {}
+        for blk in sec.blocks:
+            all_blocks[blk.id] = blk
+        for step in sec.steps:
+            for blk in step.blocks:
+                all_blocks[blk.id] = blk
+
+        count = 0
+        for upd in updates:
+            blk = all_blocks.get(upd.get("id"))
+            if blk and upd.get("content") is not None:
+                blk.content = upd["content"]
+                count += 1
+
+        g.touch()
+        _save_guide(g)
+        return jsonify({"updated": count})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -628,6 +764,26 @@ def api_sections_reorder(guide_id):
         # Keep any sections not mentioned in the order list at the end
         mentioned = set(order)
         g.sections += [s for s in id_to_sec.values() if s.id not in mentioned]
+        _renumber_steps(g)
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True, "guide": g.model_dump()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/section/<section_id>/steps/reorder", methods=["POST"])
+def api_section_steps_reorder(guide_id, section_id):
+    try:
+        g = _load_guide(guide_id)
+        sec = next((s for s in g.sections if s.id == section_id), None)
+        if sec is None:
+            return jsonify({"error": "Section not found"}), 404
+        order = (request.json or {}).get("order", [])
+        id_to_step = {st.id: st for st in sec.steps}
+        sec.steps = [id_to_step[sid] for sid in order if sid in id_to_step]
+        mentioned = set(order)
+        sec.steps += [st for st in id_to_step.values() if st.id not in mentioned]
         _renumber_steps(g)
         g.touch()
         _save_guide(g)
@@ -1667,6 +1823,10 @@ def _load_ss_meta() -> dict:
 def _save_ss_meta(meta: dict) -> None:
     json.dump(meta, open(_ss_meta_path(), "w"), indent=2)
 
+def _ss_caption(meta: dict, filename: str) -> str:
+    """Safely read caption from meta — guards against corrupted non-dict entries."""
+    m = meta.get(filename, {})
+    return m.get("caption", "") if isinstance(m, dict) else ""
 
 @app.route("/api/screenshots")
 def api_list_screenshots():
@@ -1676,10 +1836,13 @@ def api_list_screenshots():
     items = []
     for f in sorted(ss_dir.glob("*.png")) + sorted(ss_dir.glob("*.jpg")) + sorted(ss_dir.glob("*.jpeg")):
         fname = f.name
+        m = meta.get(fname, {})
+        if not isinstance(m, dict):
+            m = {}
         items.append({
             "filename": fname,
             "url": f"/api/screenshots/file/{fname}",
-            "caption": meta.get(fname, {}).get("caption", ""),
+            "caption": m.get("caption", ""),
             "size": f.stat().st_size,
             "mtime": f.stat().st_mtime,
         })
@@ -1691,7 +1854,9 @@ def api_list_screenshots():
 def api_screenshot_file(filename):
     """Serve a screenshot image."""
     from flask import send_from_directory
-    return send_from_directory(str(_ss_dir()), filename)
+    resp = send_from_directory(str(_ss_dir()), filename)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.route("/api/screenshots/upload", methods=["POST"])
@@ -1787,6 +1952,56 @@ def api_screenshot_caption(filename):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/screenshots/<filename>/generate-text", methods=["POST"])
+def api_screenshot_generate_text(filename):
+    """Use vision AI to draft instructional text for a lab step based on a screenshot."""
+    data = request.json or {}
+    context = data.get("context", "")
+    p = _ss_dir() / filename
+    if not p.exists():
+        return jsonify({"error": "File not found"}), 404
+    try:
+        import base64
+        img_b64 = base64.b64encode(p.read_bytes()).decode()
+        ext = p.suffix.lstrip(".")
+        text = _run_async(_ai_generate_text_from_image(img_b64, ext, context))
+        return jsonify({"text": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+async def _ai_generate_text_from_image(img_b64: str, ext: str, context: str) -> str:
+    """Call vision AI to draft instructional step text from a screenshot."""
+    from lab_guide_automator import ai_client as _ai
+    client = _ai._make_http_client()
+    token = _ai._get_copilot_token()
+    model = settings.vision_model()
+    prompt = (
+        "You are a technical writer creating a Cisco lab guide. "
+        "Look at this screenshot and write 2-4 sentences of clear, instructional text "
+        "describing what the user sees and what action they should take next. "
+        "Use imperative tense (e.g. 'Click…', 'Notice…', 'Select…'). "
+        "Return only the instructional text as HTML paragraphs (<p>…</p>), no headings."
+    )
+    if context:
+        prompt += f" Context: {context}"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{img_b64}"}},
+            {"type": "text", "text": prompt},
+        ]}],
+        "max_tokens": 300,
+    }
+    resp = client.post(
+        "https://api.githubcopilot.com/chat/completions",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
 async def _ai_caption_image(img_b64: str, ext: str) -> str:
     """Call vision AI to generate a caption for an image."""
     from lab_guide_automator import ai_client as _ai
@@ -1832,7 +2047,7 @@ def api_step_add_screenshot(guide_id, step_id):
     # Read caption from meta if not provided
     if not caption:
         meta = _load_ss_meta()
-        caption = meta.get(filename, {}).get("caption", "")
+        caption = _ss_caption(meta, filename)
     from lab_guide_automator.models import StepScreenshot
     step.screenshots.append(StepScreenshot(
         path=f"screenshots/{filename}",
@@ -1905,7 +2120,7 @@ def api_section_add_screenshot(guide_id, section_id):
         return jsonify({"error": "Section not found"}), 404
     if not caption:
         meta = _load_ss_meta()
-        caption = meta.get(filename, {}).get("caption", "")
+        caption = _ss_caption(meta, filename)
     from lab_guide_automator.models import StepScreenshot
     sec.screenshots.append(StepScreenshot(
         path=f"screenshots/{filename}",
@@ -2056,7 +2271,7 @@ def api_section_block_attach_screenshot(guide_id, section_id, block_id):
     caption = data.get("caption", "")
     if not caption:
         meta = _load_ss_meta()
-        caption = meta.get(filename, {}).get("caption", "")
+        caption = _ss_caption(meta, filename)
     g = _load_guide(guide_id)
     sec = g.get_section(section_id)
     if not sec:
@@ -2068,6 +2283,97 @@ def api_section_block_attach_screenshot(guide_id, section_id, block_id):
     block.caption = caption
     g.touch()
     _save_guide(g)
+    return jsonify(block.model_dump())
+
+
+# ─────────────────────────────────────────────────────────────
+# API — Step content blocks (text + screenshots interleaved)
+# ─────────────────────────────────────────────────────────────
+
+def _get_step(g, step_id):
+    for sec in g.sections:
+        for st in sec.steps:
+            if st.id == step_id:
+                return st
+    return None
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/blocks", methods=["POST"])
+def api_step_block_add(guide_id, step_id):
+    from lab_guide_automator.models import ContentBlock
+    g = _load_guide(guide_id)
+    step = _get_step(g, step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    data = request.json or {}
+    block = ContentBlock(type=data.get("type", "text"), content=data.get("content", ""),
+                         path=data.get("path", ""), caption=data.get("caption", ""))
+    pos = data.get("after")   # insert after block id, or None = append
+    if pos:
+        idx = next((i for i, b in enumerate(step.blocks) if b.id == pos), -1)
+        step.blocks.insert(idx + 1, block)
+    else:
+        step.blocks.append(block)
+    g.touch(); _save_guide(g)
+    return jsonify(block.model_dump())
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/blocks/<block_id>", methods=["POST"])
+def api_step_block_update(guide_id, step_id, block_id):
+    g = _load_guide(guide_id)
+    step = _get_step(g, step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    block = next((b for b in step.blocks if b.id == block_id), None)
+    if not block:
+        return jsonify({"error": "Block not found"}), 404
+    data = request.json or {}
+    for field in ["content", "path", "caption"]:
+        if field in data:
+            setattr(block, field, data[field])
+    g.touch(); _save_guide(g)
+    return jsonify(block.model_dump())
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/blocks/<block_id>", methods=["DELETE"])
+def api_step_block_delete(guide_id, step_id, block_id):
+    g = _load_guide(guide_id)
+    step = _get_step(g, step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    step.blocks = [b for b in step.blocks if b.id != block_id]
+    g.touch(); _save_guide(g)
+    return jsonify({"ok": True})
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/blocks/reorder", methods=["POST"])
+def api_step_blocks_reorder(guide_id, step_id):
+    g = _load_guide(guide_id)
+    step = _get_step(g, step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    order = (request.json or {}).get("order", [])
+    id_to_block = {b.id: b for b in step.blocks}
+    step.blocks = [id_to_block[bid] for bid in order if bid in id_to_block]
+    mentioned = set(order)
+    step.blocks += [b for b in id_to_block.values() if b.id not in mentioned]
+    g.touch(); _save_guide(g)
+    return jsonify({"ok": True})
+
+@app.route("/api/guides/<guide_id>/step/<step_id>/blocks/<block_id>/attach-screenshot", methods=["POST"])
+def api_step_block_attach_screenshot(guide_id, step_id, block_id):
+    data = request.json or {}
+    filename = data.get("filename", "")
+    caption = data.get("caption", "")
+    if not caption:
+        meta = _load_ss_meta()
+        caption = _ss_caption(meta, filename)
+    g = _load_guide(guide_id)
+    step = _get_step(g, step_id)
+    if not step:
+        return jsonify({"error": "Step not found"}), 404
+    block = next((b for b in step.blocks if b.id == block_id), None)
+    if not block:
+        return jsonify({"error": "Block not found"}), 404
+    block.path = filename
+    block.caption = caption
+    g.touch(); _save_guide(g)
     return jsonify(block.model_dump())
 
 
@@ -2247,6 +2553,25 @@ def api_ingest_section(guide_id):
                 guide_context=guide.metadata.title,
                 progress_callback=progress,
             ))
+            # Copy session screenshots into the shared screenshots dir so they
+            # are served correctly by /api/screenshots/file/<filename>
+            import shutil
+            ss_dir = _ss_dir()
+            for sec_step in new_section.steps:
+                updated: list = []
+                for ss in sec_step.screenshots:
+                    src = Path(ss.path)
+                    if src.exists() and not str(src).startswith(str(ss_dir)):
+                        dest = ss_dir / src.name
+                        if not dest.exists():
+                            shutil.copy2(src, dest)
+                        ss.path = src.name   # store just the filename
+                    elif not src.is_absolute():
+                        pass  # already a relative filename — leave it
+                    else:
+                        ss.path = src.name
+                    updated.append(ss)
+                sec_step.screenshots = updated
             # Reload guide fresh in case it was edited while the job ran
             g = _load_guide(guide_id)
             if g is None:
@@ -2400,13 +2725,53 @@ def _preview_html(g) -> str:
     def _img(path: str, caption: str = "") -> str:
         fname = os.path.basename(path)
         cap_attr = caption.replace('"', '&quot;')
-        cap_html = f'<p class="prev-caption">{caption}</p>' if caption else ""
         return (
             f'<figure class="prev-figure">'
             f'<img src="/api/screenshots/file/{fname}" alt="{cap_attr}" '
             f'onerror="this.closest(\'figure\').style.display=\'none\'">'
-            f'{cap_html}</figure>'
+            f'</figure>'
         )
+
+    CALLOUT_STYLES = {
+        "expected_result": ("prev-callout-expected", "✓ Expected Result"),
+        "note":            ("prev-callout-note",     "📝 Note"),
+        "caution":         ("prev-callout-caution",  "⚠ Caution"),
+        "congratulations": ("prev-callout-congrats", "🎉 Congratulations"),
+        "tip":             ("prev-callout-tip",      "💡 Tip"),
+    }
+
+    def _callout(blk) -> str:
+        css, label = CALLOUT_STYLES.get(blk.callout_type, ("prev-callout-note", blk.callout_type))
+        return (
+            f'<div class="{css} prev-callout">'
+            f'<strong>{label}</strong>'
+            + (f'<br>{blk.content}' if blk.content else '')
+            + '</div>'
+        )
+
+    def _callout_from_legacy(callout_type: str, content: str) -> str:
+        css, label = CALLOUT_STYLES.get(callout_type, ("prev-callout-note", callout_type))
+        return (
+            f'<div class="{css} prev-callout">'
+            f'<strong>{label}</strong>'
+            + (f'<br>{content}' if content else '')
+            + '</div>'
+        )
+
+    def _render_blocks(blocks, legacy_screenshots=None) -> list:
+        out = []
+        if blocks:
+            for blk in blocks:
+                if blk.type == "text":
+                    out.append(_md(blk.content or ""))
+                elif blk.type == "screenshot" and blk.path:
+                    out.append(_img(blk.path, blk.caption or ""))
+                elif blk.type == "callout":
+                    out.append(_callout(blk))
+        elif legacy_screenshots:
+            for ss in legacy_screenshots:
+                out.append(_img(ss.path, ss.caption or ""))
+        return out
 
     parts = []
 
@@ -2442,16 +2807,10 @@ def _preview_html(g) -> str:
         if sec.overview:
             parts.append(_md(sec.overview))
 
-        blocks = getattr(sec, "blocks", []) or []
-        for blk in blocks:
-            if blk.type == "text":
-                parts.append(_md(blk.content or ""))
-            elif blk.type == "screenshot" and blk.path:
-                parts.append(_img(blk.path, blk.caption or ""))
-
-        if not blocks:
-            for ss in getattr(sec, "screenshots", []):
-                parts.append(_img(ss.path, ss.caption or ""))
+        parts.extend(_render_blocks(
+            getattr(sec, "blocks", []) or [],
+            getattr(sec, "screenshots", []) or [],
+        ))
 
         # Steps — numbered per section
         for i, step in enumerate(sec.steps, 1):
@@ -2465,19 +2824,17 @@ def _preview_html(g) -> str:
                 for cb in step.code_blocks:
                     parts.append(f'<pre><code>{cb}</code></pre>')
 
-            for ss in step.screenshots:
-                parts.append(_img(ss.path, ss.caption or ""))
+            # Step blocks (new system) — fall back to legacy screenshots
+            parts.extend(_render_blocks(
+                getattr(step, "blocks", []) or [],
+                getattr(step, "screenshots", []) or [],
+            ))
+            # Legacy dedicated fields
+            if getattr(step, "expected_result", ""):
+                parts.append(_callout_from_legacy("expected_result", step.expected_result))
+            if getattr(step, "notes", ""):
+                parts.append(_callout_from_legacy("note", step.notes))
 
-            if step.expected_result:
-                parts.append(
-                    f'<div class="prev-expected">'
-                    f'<strong>Expected Result:</strong> {step.expected_result}'
-                    f'</div>'
-                )
-            if step.notes:
-                parts.append(
-                    f'<div class="prev-note"><strong>Note:</strong> {step.notes}</div>'
-                )
             parts.append('</div>')
 
     if g.conclusion:
@@ -2605,6 +2962,9 @@ def _render_html() -> str:
   .section-header:hover { border-color: var(--accent); }
   .sec-drag-handle { color: var(--text2); cursor: grab; font-size: 1rem; padding: 0 .15rem; flex-shrink: 0; }
   .sec-drag-handle:active { cursor: grabbing; }
+  .step-drag-handle { color: var(--text2); cursor: grab; font-size: 1rem; padding: 0 .15rem; flex-shrink: 0; }
+  .step-drag-handle:active { cursor: grabbing; }
+  .step-drag-over { border-color: var(--accent) !important; box-shadow: 0 0 0 2px rgba(0,188,235,.25); }
   .section-num { background: var(--accent2); color: var(--accent); border-radius: 4px; padding: 1px 7px; font-size: .75rem; font-weight: 700; flex-shrink: 0; }
   .section-title { flex: 1; }
   .sec-title-input { flex: 1; font-size: .92rem; font-weight: 600; background: var(--surface); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); padding: 2px 6px; outline: none; }
@@ -2621,6 +2981,19 @@ def _render_html() -> str:
   .step-title-text { font-weight: 500; font-size: .88rem; flex: 1; }
   .step-body { font-size: .83rem; color: var(--text2); line-height: 1.55; margin-bottom: .4rem; white-space: pre-wrap; }
   .expected { background: #1a2e1a; border-left: 3px solid var(--green); padding: .35rem .6rem; border-radius: 0 4px 4px 0; font-size: .78rem; color: #7ee787; margin-top: .4rem; }
+  /* Callout blocks */
+  .callout-block { border-radius: 6px; padding: .55rem .85rem; margin: .35rem 0; font-size: .84rem; border-left: 4px solid; position: relative; overflow-wrap: break-word; word-break: break-word; }
+  .callout-block .callout-label { font-weight: 700; font-size: .82rem; letter-spacing: .02em; margin-bottom: .35rem; display: flex; align-items: center; gap: .3rem; }
+  .callout-block .callout-content { white-space: normal; line-height: 1.6; overflow-wrap: break-word; word-break: break-word; }
+  .callout-block .callout-content p { margin: 0 0 .4em; }
+  .callout-block .callout-content p:last-child { margin-bottom: 0; }
+  .callout-block .callout-actions { position: absolute; top: .35rem; right: .4rem; display: flex; gap: .3rem; opacity: 0; transition: opacity .15s; }
+  .callout-block:hover .callout-actions { opacity: 1; }
+  .callout-expected  { background: #0d2a12; border-color: #3fb950; color: #7ee787; }
+  .callout-note      { background: #0d1f3a; border-color: #388bfd; color: #79c0ff; }
+  .callout-caution   { background: #2a1800; border-color: #e3700a; color: #f0a04a; }
+  .callout-congrats  { background: #1e0d2e; border-color: #a855f7; color: #d8b4fe; }
+  .callout-tip       { background: #002a28; border-color: #06b6d4; color: #67e8f9; }
 
   /* ── Step screenshot panel ── */
   .step-screenshots { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .6rem; }
@@ -2639,7 +3012,9 @@ def _render_html() -> str:
   .block-item { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); margin-bottom: .4rem; }
   .block-item.block-text { }
   .block-item.block-screenshot { display: flex; align-items: flex-start; gap: .75rem; padding: .6rem; }
-  .block-text-body { padding: .5rem .75rem; font-size: .83rem; color: var(--text2); white-space: pre-wrap; line-height: 1.55; cursor: pointer; min-height: 2rem; }
+  .block-text-body { padding: .5rem .75rem; font-size: .83rem; color: var(--text2); white-space: normal; overflow-wrap: break-word; word-break: break-word; line-height: 1.6; cursor: pointer; min-height: 2rem; }
+  .block-text-body p { margin: 0 0 .5em; }
+  .block-text-body p:last-child { margin-bottom: 0; }
   .block-text-body:hover { background: var(--surface2); border-radius: 5px; }
   .block-text-edit { display: none; padding: .5rem .75rem; }
   .block-text-edit textarea { width: 100%; box-sizing: border-box; min-height: 80px; resize: vertical; }
@@ -2729,8 +3104,12 @@ def _render_html() -> str:
   .preview-pane .prev-step { border-left: 4px solid #00bceb; padding: .5rem 1rem; margin: 1.2rem 0; background: #f8fdff; border-radius: 0 6px 6px 0; }
   .preview-pane .prev-step h3 { display: flex; align-items: center; gap: .6rem; margin-top: .3rem; }
   .preview-pane .prev-step-num { background: #00bceb; color: #fff; border-radius: 50%; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: .8rem; font-weight: 700; flex-shrink: 0; }
-  .preview-pane .prev-expected { background: #f0faf0; border-left: 4px solid #4caf50; padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; }
-  .preview-pane .prev-note { background: #fff8e1; border-left: 4px solid #ffc107; padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; }
+  .preview-pane .prev-callout { padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; border-left-width: 4px; border-left-style: solid; }
+  .preview-pane .prev-callout-expected { background: #f0faf0; border-left-color: #3fb950; }
+  .preview-pane .prev-callout-note     { background: #e8f0fe; border-left-color: #388bfd; }
+  .preview-pane .prev-callout-caution  { background: #fff3e0; border-left-color: #e3700a; }
+  .preview-pane .prev-callout-congrats { background: #f3e5f5; border-left-color: #a855f7; }
+  .preview-pane .prev-callout-tip      { background: #e0f7fa; border-left-color: #06b6d4; }
   .preview-pane .prev-figure { margin: 1rem 0; text-align: center; }
   .preview-pane .prev-figure img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.08); cursor: zoom-in; }
   .preview-pane .prev-caption { font-size: .8rem; color: #666; margin-top: .35rem; font-style: italic; }
@@ -3472,6 +3851,7 @@ def _render_html() -> str:
   </div>
 </div>
 
+
 <!-- Screenshot Preview Modal -->
 <div class="modal-overlay" id="modal-ss-preview">
   <div class="modal" style="max-width:90vw;width:auto;text-align:center">
@@ -3506,6 +3886,22 @@ def _render_html() -> str:
 </div>
 
 <!-- Add AI Section Modal -->
+<div class="modal-overlay" id="modal-callout">
+  <div class="modal" style="width:380px">
+    <h3>Add Callout Box</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:1rem">
+      <button class="btn callout-expected" style="padding:.7rem;text-align:left;border:1px solid #3fb950" onclick="_calloutPick('expected_result')"><strong>✓ Expected Result</strong><br><span style="font-size:.75rem;opacity:.8">Green — what they should see</span></button>
+      <button class="btn callout-note"     style="padding:.7rem;text-align:left;border:1px solid #388bfd" onclick="_calloutPick('note')"><strong>📝 Note</strong><br><span style="font-size:.75rem;opacity:.8">Blue — important information</span></button>
+      <button class="btn callout-caution"  style="padding:.7rem;text-align:left;border:1px solid #e3700a" onclick="_calloutPick('caution')"><strong>⚠ Caution</strong><br><span style="font-size:.75rem;opacity:.8">Orange — be careful</span></button>
+      <button class="btn callout-congrats" style="padding:.7rem;text-align:left;border:1px solid #a855f7" onclick="_calloutPick('congratulations')"><strong>🎉 Congratulations</strong><br><span style="font-size:.75rem;opacity:.8">Purple — milestone reached</span></button>
+      <button class="btn callout-tip"      style="padding:.7rem;text-align:left;border:1px solid #06b6d4" onclick="_calloutPick('tip')"><strong>💡 Tip</strong><br><span style="font-size:.75rem;opacity:.8">Teal — helpful hint</span></button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-callout')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-add-ai-section">
   <div class="modal" style="width:520px">
     <h3>✦ Generate Section with AI</h3>
@@ -3618,6 +4014,7 @@ function renderGuide() {
   document.getElementById('ed-conclusion').textContent = g.conclusion || '(No conclusion yet)';
   renderSections();
   renderObjectives();
+  _applyExpectedVisibility();
 }
 
 function renderSections() {
@@ -3645,10 +4042,11 @@ function renderSections() {
         <span class="section-count">${sec.steps.length} step${sec.steps.length !== 1 ? 's' : ''}</span>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();secTitleEdit('${sec.id}')">✎ Rename</button>
         <button class="btn btn-ai btn-sm" onclick="event.stopPropagation();rewriteSection('${sec.id}')">✦ AI</button>
+        <button class="btn btn-ai btn-sm" onclick="event.stopPropagation();normalizeSection('${sec.id}')" title="Normalize all steps in this section to consistent tone and formatting">✦ Normalize</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteSection('${sec.id}')">✕</button>
       </div>
 
-      <!-- Overview -->
+
       <div class="sec-overview-row" id="sec-overview-row-${sec.id}">
         <span class="sec-overview-text" id="sec-overview-text-${sec.id}">${sec.overview || '<em style="color:var(--text2)">No overview — click Edit to add one</em>'}</span>
         <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="secOverviewEdit('${sec.id}','${(sec.overview||'').replace(/'/g,"\\'")}')">Edit</button>
@@ -3661,13 +4059,13 @@ function renderSections() {
         </div>
       </div>
 
-      <!-- Content blocks -->
+
       <div class="block-list" id="block-list-${sec.id}">
         ${renderBlockDivider(sec.id, null)}
         ${(sec.blocks || []).map(b => renderBlock(sec.id, b)).join('')}
       </div>
 
-      <!-- Steps -->
+
       <div class="steps-container" style="margin-top:.5rem">
         ${sec.steps.map((step, i) => renderStep(step, i + 1)).join('')}
         <button class="btn btn-secondary btn-sm" style="margin-top:.4rem;border-style:dashed" onclick="addStepToSection('${sec.id}')">+ Add Step</button>
@@ -3677,6 +4075,13 @@ function renderSections() {
 }
 
 function renderBlock(secId, block) {
+  if (block.type === 'callout') {
+    return renderCalloutBlock(
+      block,
+      `blockDelete('${secId}','${block.id}')`,
+      `blockCalloutEdit('${secId}','${block.id}')`
+    ) + renderBlockDivider(secId, block.id);
+  }
   if (block.type === 'text') {
     return `
       <div class="block-item block-text" id="block-${block.id}" draggable="true"
@@ -3688,7 +4093,8 @@ function renderBlock(secId, block) {
           ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
         </div>
         <div class="block-text-edit" id="block-edit-${block.id}">
-          <textarea id="block-ta-${block.id}">${block.content}</textarea>
+          <div class="quill-host" id="block-qhost-${block.id}"></div>
+          ${_blockAiToolbar(block.id, '')}
           <div class="gap-row" style="margin-top:.35rem">
             <button class="btn btn-primary btn-sm" onclick="blockTextSave('${secId}','${block.id}')">Save</button>
             <button class="btn btn-secondary btn-sm" onclick="blockTextEdit('${block.id}',false)">Cancel</button>
@@ -3714,14 +4120,15 @@ function renderBlock(secId, block) {
           <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
           <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
             onchange="blockSsCaption('${secId}','${block.id}',this.value)">
-          <div class="block-actions">
-            <button class="btn btn-secondary btn-sm" onclick="blockSsPick('${secId}','${block.id}')">📂 Pick from Repository</button>
-            <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-              ⬆ Upload<input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="blockSsUpload(this,'${secId}','${block.id}')">
-            </label>
-            <button class="btn btn-ai btn-sm" onclick="blockSsAiCaption('${secId}','${block.id}','${fname}')">✦ AI Caption</button>
-            <button class="btn btn-danger btn-sm" onclick="blockDelete('${secId}','${block.id}')">✕</button>
-          </div>
+           <div class="block-actions">
+             <button class="btn btn-secondary btn-sm" onclick="blockSsPick('${secId}','${block.id}')">📂 Pick from Repository</button>
+             <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+               ⬆ Upload<input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="blockSsUpload(this,'${secId}','${block.id}')">
+             </label>
+             <button class="btn btn-secondary btn-sm" onclick="blockCapture('${secId}','${block.id}')">📸 Capture</button>
+             <button class="btn btn-ai btn-sm" onclick="blockSsAiCaption('${secId}','${block.id}','${fname}')">✦ AI Caption</button>
+             <button class="btn btn-danger btn-sm" onclick="blockDelete('${secId}','${block.id}')">✕</button>
+           </div>
         </div>
       </div>
       ${renderBlockDivider(secId, block.id)}`;
@@ -3734,6 +4141,7 @@ function renderBlockDivider(secId, afterBlockId) {
     <div class="block-divider-line"></div>
     <button class="btn btn-secondary block-add-btn" onclick="blockAddText('${secId}',${aid})">+ Text</button>
     <button class="btn btn-secondary block-add-btn" onclick="blockAddScreenshot('${secId}',${aid})">🖼 Screenshot</button>
+    <button class="btn btn-secondary block-add-btn" onclick="openCalloutPicker('section','${secId}',${aid})">🟩 Callout</button>
     <div class="block-divider-line"></div>
   </div>`;
 }
@@ -3827,6 +4235,126 @@ async function deleteSection(sectionId) {
   if (res.ok) await loadGuide(currentGuideId);
 }
 
+function renderStepBlockDivider(stepId, afterBlockId) {
+  const aid = afterBlockId ? `'${afterBlockId}'` : 'null';
+  return `<div class="block-divider">
+    <div class="block-divider-line"></div>
+    <button class="btn btn-secondary block-add-btn" onclick="stepBlockAddText('${stepId}',${aid})">+ Text</button>
+    <button class="btn btn-secondary block-add-btn" onclick="stepBlockAddScreenshot('${stepId}',${aid})">🖼 Screenshot</button>
+    <button class="btn btn-secondary block-add-btn" onclick="openCalloutPicker('step','${stepId}',${aid})">🟩 Callout</button>
+    <div class="block-divider-line"></div>
+  </div>`;
+}
+
+function renderStepBlock(stepId, block) {
+  if (block.type === 'callout') {
+    return renderCalloutBlock(
+      block,
+      `stepBlockDelete('${stepId}','${block.id}')`,
+      `stepBlockCalloutEdit('${stepId}','${block.id}')`
+    ) + renderStepBlockDivider(stepId, block.id);
+  }
+  if (block.type === 'text') {
+    return `
+      <div class="block-item block-text" id="step-block-${block.id}" draggable="true"
+           ondragstart="stepBlockDragStart(event,'${stepId}','${block.id}')"
+           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
+           ondrop="stepBlockDrop(event,'${stepId}','${block.id}')">
+        <div class="block-text-body" onclick="stepBlockTextEdit('${stepId}','${block.id}',true)" title="Click to edit">
+          <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+          ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
+        </div>
+        <div class="block-text-edit" id="step-block-edit-${block.id}">
+          <div class="quill-host" id="step-block-qhost-${block.id}"></div>
+          ${_blockAiToolbar(block.id, '')}
+          <div class="gap-row" style="margin-top:.35rem">
+            <button class="btn btn-primary btn-sm" onclick="stepBlockTextSave('${stepId}','${block.id}')">Save</button>
+            <button class="btn btn-secondary btn-sm" onclick="stepBlockTextEdit('${stepId}','${block.id}',false)">Cancel</button>
+            <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">Delete</button>
+          </div>
+        </div>
+      </div>
+      ${renderStepBlockDivider(stepId, block.id)}`;
+  } else {
+    const fname = block.path ? block.path.split('/').pop() : '';
+    const cap   = block.caption || '';
+    const imgHtml = fname
+      ? `<div class="block-ss-thumb" onclick="ssPreview('/api/screenshots/file/${fname}?_=${Date.now()}','${cap}')"><img src="/api/screenshots/file/${fname}?_=${Date.now()}" alt="${cap}"><div class="block-ss-caption">${cap || fname}</div></div>`
+      : `<div class="block-ss-thumb" style="display:flex;align-items:center;justify-content:center;height:80px;color:var(--text2);font-size:.8rem;cursor:default">No image yet</div>`;
+    return `
+      <div class="block-item block-screenshot" id="step-block-${block.id}" draggable="true"
+           ondragstart="stepBlockDragStart(event,'${stepId}','${block.id}')"
+           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
+           ondrop="stepBlockDrop(event,'${stepId}','${block.id}')">
+        <span class="block-drag-handle" title="Drag to reorder" style="margin-top:.5rem">⠿</span>
+        ${imgHtml}
+        <div class="block-ss-meta">
+          <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
+          <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
+            onchange="stepBlockSsCaption('${stepId}','${block.id}',this.value)">
+           <div class="block-actions">
+             <button class="btn btn-secondary btn-sm" onclick="stepBlockSsPick('${stepId}','${block.id}')">📂 Repository</button>
+             <label class="btn btn-secondary btn-sm" style="cursor:pointer">⬆ Upload
+               <input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="stepBlockSsUpload(this,'${stepId}','${block.id}')">
+             </label>
+             <button class="btn btn-secondary btn-sm" onclick="stepBlockCapture('${stepId}','${block.id}')">📸 Capture</button>
+             <button class="btn btn-secondary btn-sm" onclick="stepBlockAnnotate('${stepId}','${block.id}','${fname}')">✏️ Annotate</button>
+             <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">✕</button>
+           </div>
+        </div>
+      </div>
+      ${renderStepBlockDivider(stepId, block.id)}`;
+  }
+}
+
+function _calloutMeta(calloutType) {
+  const map = {
+    expected_result:  {css: 'callout-expected',  label: '✓ Expected Result'},
+    note:             {css: 'callout-note',       label: '📝 Note'},
+    caution:          {css: 'callout-caution',    label: '⚠ Caution'},
+    congratulations:  {css: 'callout-congrats',   label: '🎉 Congratulations'},
+    tip:              {css: 'callout-tip',         label: '💡 Tip'},
+  };
+  return map[calloutType] || {css: 'callout-note', label: calloutType};
+}
+
+function renderCalloutBlock(block, deleteHandler, editHandler) {
+  const {css, label} = _calloutMeta(block.callout_type);
+  return `<div class="callout-block ${css}" id="callout-block-${block.id}">
+    <div class="callout-label">${label}</div>
+    <div class="callout-content" id="callout-content-${block.id}">${block.content || '<em style="opacity:.6">Click ✎ to add text</em>'}</div>
+    <div class="callout-edit-panel" id="callout-edit-${block.id}" style="display:none;margin-top:.5rem">
+      <div class="quill-host" id="callout-qhost-${block.id}"></div>
+      ${_blockAiToolbar(block.id, '')}
+      <div class="gap-row" style="margin-top:.35rem">
+        <button class="btn btn-primary btn-sm" onclick="${editHandler.replace('Edit','Save')}">Save</button>
+        <button class="btn btn-secondary btn-sm" onclick="cancelCalloutEdit('${block.id}')">Cancel</button>
+      </div>
+    </div>
+    <div class="callout-actions">
+      <button class="btn btn-secondary btn-sm" style="font-size:.7rem;padding:1px 6px" onclick="${editHandler}">✎</button>
+      <button class="btn btn-danger btn-sm"    style="font-size:.7rem;padding:1px 6px" onclick="${deleteHandler}">✕</button>
+    </div>
+  </div>`;
+}
+
+function renderStepLegacyScreenshots(step) {
+  // Show legacy screenshots (pre-blocks) as read-only thumbnails with a migrate button
+  const shots = step.screenshots || [];
+  const thumbs = shots.map((ss, idx) => {
+    const fname = ss.path.split('/').pop();
+    const cap = ss.caption || fname;
+    return `<div class="ss-thumb">
+      <img src="/api/screenshots/file/${fname}?_=${Date.now()}" alt="${cap}" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')">
+      <div class="ss-thumb-caption" title="${cap}">${cap}</div>
+    </div>`;
+  }).join('');
+  return `<div style="padding:.5rem .75rem;background:var(--surface2);border-radius:6px;border:1px dashed var(--border);margin:.4rem 0">
+    <div style="font-size:.75rem;color:var(--text2);margin-bottom:.4rem">Legacy screenshots — <button class="btn btn-secondary btn-sm" style="font-size:.7rem" onclick="migrateStepScreenshots('${step.id}')">Migrate to blocks</button></div>
+    <div class="ss-thumb-row">${thumbs}</div>
+  </div>`;
+}
+
 function renderStep(step, globalNum) {
   const shots = step.screenshots || [];
   const thumbsHtml = shots.map((ss, idx) => {
@@ -3837,9 +4365,10 @@ function renderStep(step, globalNum) {
         ondragover="ssDragOver(event,this)"
         ondrop="ssDrop(event,'${step.id}',${idx})"
         ondragleave="ssDragLeave(this)">
-      <img src="/api/screenshots/file/${fname}" alt="${cap}" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')">
+      <img src="/api/screenshots/file/${fname}?_=${Date.now()}" alt="${cap}" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')">
       <div class="ss-thumb-caption" title="${cap}">${cap}</div>
       <div class="ss-thumb-actions">
+        <button class="ss-thumb-btn" title="Annotate" onclick="stepThumbAnnotate(event,'${step.id}','${fname}')">✏️</button>
         <button class="ss-thumb-btn" title="Edit caption" onclick="ssEditCaption(event,'${step.id}',${idx},'${cap.replace(/'/g,"\\'")}')">✎</button>
         <button class="ss-thumb-btn" title="Remove" onclick="ssRemove(event,'${step.id}',${idx})">✕</button>
       </div>
@@ -3847,8 +4376,14 @@ function renderStep(step, globalNum) {
   }).join('');
 
   return `
-    <div class="step-card" id="step-${step.id}">
+    <div class="step-card" id="step-${step.id}" draggable="true"
+         data-stepid="${step.id}"
+         ondragstart="stepDragStart(event,'${step.id}')"
+         ondragover="stepDragOver(event,this)"
+         ondragleave="stepDragLeave(this)"
+         ondrop="stepDrop(event,'${step.id}')">
       <div class="step-header">
+        <span class="step-drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">⠿</span>
         <div class="step-num">${globalNum != null ? globalNum : step.order}</div>
         <div class="step-title-text" id="step-title-text-${step.id}"
              ondblclick="editStepInline('${step.id}')"
@@ -3857,37 +4392,25 @@ function renderStep(step, globalNum) {
         <button class="btn btn-secondary btn-sm" onclick="editStepInline('${step.id}')">Edit</button>
       </div>
       <div class="step-body" id="step-body-${step.id}">${step.instruction}</div>
-      ${step.expected_result ? `<div class="expected">✓ ${step.expected_result}</div>` : ''}
 
-      <!-- Screenshot panel -->
-      <div class="step-screenshots">
-        <div class="step-screenshots-label">
-          🖼 Screenshots (${shots.length})
-          <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem" onclick="stepCaptureAndAnnotate('${step.id}')">📸 Capture</button>
-          <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem" onclick="openSsRepo('${step.id}')">+ Add from Repository</button>
-          <label class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:.72rem;cursor:pointer">
-            ⬆ Upload
-            <input type="file" accept=".png,.jpg,.jpeg" multiple style="display:none" onchange="ssUploadAndAttach(this,'${step.id}')">
-          </label>
-        </div>
-        <div class="ss-thumb-row" id="ss-row-${step.id}">${thumbsHtml}</div>
-        ${shots.length === 0 ? '<div style="font-size:.75rem;color:var(--text2)">No screenshots attached. Upload or pick from the repository.</div>' : ''}
+      <div class="step-block-list" id="step-block-list-${step.id}">
+        ${renderStepBlockDivider(step.id, null)}
+        ${(step.blocks || []).map(b => renderStepBlock(step.id, b)).join('')}
+        ${(step.blocks || []).length === 0 && (step.screenshots || []).length > 0 ? renderStepLegacyScreenshots(step) : ''}
       </div>
+      ${step.expected_result ? `<div class="prev-callout prev-callout-expected" style="margin:.4rem 0"><strong>✓ Expected Result</strong><br>${step.expected_result}</div>` : ''}
+      ${step.notes ? `<div class="prev-callout prev-callout-note" style="margin:.4rem 0"><strong>📝 Note</strong><br>${step.notes}</div>` : ''}
 
        <div id="step-edit-${step.id}" style="display:none;margin-top:.75rem">
          <div class="form-group" style="margin-bottom:.5rem">
            <label>Title</label>
            <input type="text" id="step-title-${step.id}" value="${step.title.replace(/"/g,'&quot;')}">
          </div>
-         <div class="form-group" style="margin-bottom:.5rem">
-           <label>Instruction</label>
-           <div id="step-instr-editor-${step.id}" class="quill-host"></div>
-         </div>
-         <div class="form-group" style="margin-bottom:.5rem">
-           <label>Expected Result</label>
-           <input type="text" id="step-exp-${step.id}" value="${step.expected_result || ''}">
-         </div>
-         <!-- AI Enhance row -->
+          <div class="form-group" style="margin-bottom:.5rem">
+            <label>Instruction</label>
+            <div id="step-instr-editor-${step.id}" class="quill-host"></div>
+          </div>
+
          <div style="display:flex;align-items:center;gap:6px;margin-bottom:.6rem;padding:.5rem .6rem;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
            <span style="font-size:.75rem;color:var(--text2);flex:1">✦ AI — fix spelling, grammar &amp; clarity, or expand / shorten</span>
            <select id="step-ai-mode-${step.id}" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 6px;font-size:.75rem">
@@ -3930,6 +4453,44 @@ function toggleSection(header) {
 
 // ── Quill editor registry ─────────────────────────────────────
 const _quillEditors = {};   // stepId → Quill instance
+const _blockQuills  = {};   // blockId → Quill instance (text blocks + callouts)
+
+function _initBlockQuill(blockId, hostId, content) {
+  if (_blockQuills[blockId]) {
+    try { _blockQuills[blockId] = null; } catch(e) {}
+    delete _blockQuills[blockId];
+  }
+  const host = document.getElementById(hostId);
+  if (!host) return null;
+  const q = new Quill(host, {
+    theme: 'snow',
+    modules: {
+      toolbar: [
+        ['bold','italic','underline','strike'],
+        ['link','blockquote','code-block'],
+        [{list:'ordered'},{list:'bullet'}],
+        [{header:[1,2,3,false]}],
+        ['clean'],
+      ],
+    },
+  });
+  if (content) {
+    const delta = q.clipboard.convert({html: content});
+    q.setContents(delta, 'silent');
+  }
+  // Inject emoji button into this block's toolbar
+  const toolbar = host.querySelector('.ql-toolbar');
+  if (toolbar) {
+    const emojiBtn = document.createElement('button');
+    emojiBtn.className = 'ql-emoji-btn';
+    emojiBtn.title = 'Insert emoji';
+    emojiBtn.textContent = '😊';
+    emojiBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); _showEmojiPicker(emojiBtn, q); };
+    toolbar.appendChild(emojiBtn);
+  }
+  _blockQuills[blockId] = q;
+  return q;
+}
 
 // Common emoji set shown in the picker
 const _EMOJIS = [
@@ -4055,50 +4616,246 @@ function cancelStepEdit(stepId) {
 }
 async function saveStepEdit(stepId) {
   const title = document.getElementById('step-title-' + stepId).value.trim();
-  const exp   = document.getElementById('step-exp-' + stepId).value;
-  // Get HTML from Quill; fall back to empty string
   const quill = _quillEditors[stepId];
   const instr = quill ? quill.getSemanticHTML() : '';
   await fetch(`/api/guides/${currentGuideId}/step/${stepId}`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({title, instruction: instr, expected_result: exp}),
+    body: JSON.stringify({title, instruction: instr}),
   });
   await loadGuide(currentGuideId);
 }
 
 // ── In-section capture + annotate ───────────────────────────
 
-async function stepCaptureAndAnnotate(stepId) {
-  const btn = document.querySelector(`[onclick="stepCaptureAndAnnotate('${stepId}')"]`);
-  const origText = btn ? btn.textContent : '';
-  if (btn) { btn.textContent = '⏳ Capturing…'; btn.disabled = true; }
+// ── Step capture modal ───────────────────────────────────────
+
+let _stepCapTargetStepId = null;
+let _stepCapBlockId      = null;   // set when capturing into a specific block (null = legacy step.screenshots)
+let _stepCapSecId        = null;   // set when capturing into a section block
+
+function stepCaptureAndAnnotate(stepId) {
+  _stepCapTargetStepId = stepId;
+  _stepCapBlockId      = null;
+  _stepCapSecId        = null;
+  document.getElementById('step-cap-status').textContent = '';
+  document.getElementById('step-cap-btn').disabled = false;
+  document.getElementById('modal-step-capture').classList.add('open');
+  stepCapLoadWindows();
+}
+
+function stepBlockCapture(stepId, blockId) {
+  _stepCapTargetStepId = stepId;
+  _stepCapBlockId      = blockId;
+  _stepCapSecId        = null;
+  document.getElementById('step-cap-status').textContent = '';
+  document.getElementById('step-cap-btn').disabled = false;
+  document.getElementById('modal-step-capture').classList.add('open');
+  stepCapLoadWindows();
+}
+
+function blockCapture(secId, blockId) {
+  _stepCapTargetStepId = null;
+  _stepCapBlockId      = blockId;
+  _stepCapSecId        = secId;
+  document.getElementById('step-cap-status').textContent = '';
+  document.getElementById('step-cap-btn').disabled = false;
+  document.getElementById('modal-step-capture').classList.add('open');
+  stepCapLoadWindows();
+}
+
+async function stepCapLoadWindows() {
+  const sel = document.getElementById('step-cap-win-select');
+  const prev = sel.value;
+  try {
+    const res  = await fetch('/api/windows');
+    const wins = await res.json();
+    sel.innerHTML = '<option value="">-- Full screen --</option>';
+    wins.forEach(w => {
+      const opt = document.createElement('option');
+      // Encode as JSON so we can pass activate vs window_id info
+      opt.value = JSON.stringify({id: w.id, app: w.app, title: w.title, activate: w.activate});
+      const short = w.title.length > 44 ? w.title.slice(0, 42) + '\u2026' : w.title;
+      opt.textContent = w.app + ' \u2014 ' + short;
+      opt.title = w.title;
+      if (prev) {
+        try { if (JSON.parse(prev).title === w.title) opt.selected = true; } catch(e) {}
+      }
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    // leave full screen option
+  }
+}
+
+async function stepCapDoCapture() {
+  // Need either a step target or a section block target
+  if (!_stepCapTargetStepId && !(_stepCapBlockId && _stepCapSecId)) return;
+  const btn    = document.getElementById('step-cap-btn');
+  const status = document.getElementById('step-cap-status');
+  const selVal = document.getElementById('step-cap-win-select').value;
+
+  let winInfo = null;
+  if (selVal) { try { winInfo = JSON.parse(selVal); } catch(e) {} }
+
+  const isBrowser = winInfo && winInfo.activate;
+  const delay     = isBrowser ? 600 : (winInfo ? 100 : 400);
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Capturing\u2026';
+  status.textContent = '';
+
+  // Close modal first so overlay doesn't appear in full-screen captures
+  closeModal('modal-step-capture');
+  await new Promise(r => setTimeout(r, delay));
 
   try {
-    // 1. Tell server to take screenshot + attach to this step
-    const res  = await fetch(`/api/guides/${currentGuideId}/step/${stepId}/capture-attach`, {method:'POST'});
-    const data = await res.json();
-    if (data.error) { alert('Capture failed: ' + data.error); return; }
+    // Build capture payload
+    let payload = {};
+    if (isBrowser) {
+      payload = {activate_app: winInfo.app, activate_title: winInfo.title};
+    } else if (winInfo && winInfo.id) {
+      payload = {window_id: winInfo.id};
+    }
 
-    // 2. Refresh the step card so the new thumbnail appears
+    // 1. Take one-shot screenshot
+    const r1 = await fetch('/api/capture/one-shot', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d1 = await r1.json();
+    if (d1.error) {
+      document.getElementById('modal-step-capture').classList.add('open');
+      document.getElementById('step-cap-status').textContent = 'Capture failed: ' + d1.error;
+      btn.textContent = '📸 Capture'; btn.disabled = false;
+      return;
+    }
+
+    // 2. Attach to step / block
+    let attachUrl, attachBody;
+    if (_stepCapBlockId && _stepCapSecId) {
+      // Section block
+      attachUrl  = `/api/guides/${currentGuideId}/section/${_stepCapSecId}/blocks/${_stepCapBlockId}/attach-screenshot`;
+      attachBody = {filename: d1.filename, caption: ''};
+    } else if (_stepCapBlockId && _stepCapTargetStepId) {
+      // Step block
+      attachUrl  = `/api/guides/${currentGuideId}/step/${_stepCapTargetStepId}/blocks/${_stepCapBlockId}/attach-screenshot`;
+      attachBody = {filename: d1.filename, caption: ''};
+    } else {
+      // Legacy: attach to step.screenshots
+      attachUrl  = `/api/guides/${currentGuideId}/step/${_stepCapTargetStepId}/capture-attach`;
+      attachBody = {filename: d1.filename};
+    }
+    const r2 = await fetch(attachUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(attachBody),
+    });
+    const d2 = await r2.json();
+    if (d2.error) {
+      document.getElementById('modal-step-capture').classList.add('open');
+      document.getElementById('step-cap-status').textContent = 'Attach failed: ' + d2.error;
+      btn.textContent = '📸 Capture'; btn.disabled = false;
+      return;
+    }
+
+    // 3. Reload guide then open annotator
     await loadGuide(currentGuideId);
-
-    // 3. Open annotation modal on the captured screenshot
-    //    Give loadGuide a moment to re-render before opening annotator
     setTimeout(() => {
-      _annFilename = data.filename;
-      _annImgSrc   = data.url;
-      _annContext  = {type: 'step', sid: null, stepId, guideId: currentGuideId};
-      _annOpenModal(data.url);
+      _annFilename = d1.filename;
+      _annImgSrc   = d1.url;
+      if (_stepCapBlockId && _stepCapSecId) {
+        _annContext = {type:'section', sid: _stepCapSecId, guideId: currentGuideId};
+      } else {
+        _annContext = {type: 'step', sid: null, stepId: _stepCapTargetStepId, guideId: currentGuideId};
+      }
+      _annOpenModal(d1.url);
     }, 150);
 
   } catch(err) {
-    alert('Capture error: ' + err.message);
+    document.getElementById('modal-step-capture').classList.add('open');
+    document.getElementById('step-cap-status').textContent = 'Error: ' + err.message;
   } finally {
-    if (btn) { btn.textContent = origText; btn.disabled = false; }
+    btn.textContent = '📸 Capture';
+    btn.disabled    = false;
   }
 }
 
 // ── AI Enhance text inside Quill ─────────────────────────────
+
+// Generic helper — works for both step instruction editors (_quillEditors)
+// and block/callout editors (_blockQuills).
+async function _aiEnhanceQuill(quill, mode, context, btnEl) {
+  const html = quill.getSemanticHTML().trim();
+  if (!html || html === '<p></p>') { showToast('Write some content first', true); return; }
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.textContent = '⏳…'; btnEl.disabled = true; }
+  try {
+    const res  = await fetch('/api/enhance-text', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text: html, mode, context}),
+    });
+    const data = await res.json();
+    if (data.error) { showToast('AI enhance failed: ' + data.error, true); return; }
+    const delta = quill.clipboard.convert({html: data.enhanced.trim()});
+    quill.setContents(delta, 'user');
+    showToast('✦ AI enhanced — review and save');
+  } catch(err) {
+    showToast('Enhance error: ' + err.message, true);
+  } finally {
+    if (btnEl) { btnEl.textContent = orig; btnEl.disabled = false; }
+  }
+}
+
+async function blockAiEnhance(blockId, btnEl) {
+  const q = _blockQuills[blockId];
+  if (!q) { showToast('Open the editor first', true); return; }
+  const modeEl = document.getElementById('block-ai-mode-' + blockId);
+  const mode   = modeEl ? modeEl.value : 'polish';
+  await _aiEnhanceQuill(q, mode, '', btnEl);
+}
+
+async function blockAiFromScreenshot(blockId, filename, context, btnEl) {
+  if (!filename) { showToast('No screenshot attached yet', true); return; }
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.textContent = '⏳…'; btnEl.disabled = true; }
+  try {
+    const res  = await fetch(`/api/screenshots/${encodeURIComponent(filename)}/generate-text`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({context}),
+    });
+    const data = await res.json();
+    if (data.error) { showToast('AI generate failed: ' + data.error, true); return; }
+    const q = _blockQuills[blockId];
+    if (q) {
+      const delta = q.clipboard.convert({html: data.text.trim()});
+      q.setContents(delta, 'user');
+      showToast('✦ Draft generated — review and save');
+    }
+  } catch(err) {
+    showToast('Error: ' + err.message, true);
+  } finally {
+    if (btnEl) { btnEl.textContent = orig; btnEl.disabled = false; }
+  }
+}
+
+// Helper to render the AI toolbar HTML for a block editor
+function _blockAiToolbar(blockId, filename) {
+  return `<div style="display:flex;align-items:center;gap:6px;margin-top:.4rem;padding:.4rem .5rem;
+      background:var(--surface2);border-radius:6px;border:1px solid var(--border);flex-wrap:wrap">
+    <span style="font-size:.72rem;color:var(--text2);flex:1;min-width:80px">✦ AI</span>
+    <select id="block-ai-mode-${blockId}" style="background:var(--bg);border:1px solid var(--border);
+      color:var(--text);border-radius:4px;padding:2px 6px;font-size:.72rem">
+      <option value="polish">Polish</option>
+      <option value="expand">Expand</option>
+      <option value="shorten">Shorten</option>
+    </select>
+    <button class="btn btn-ai btn-sm" id="block-ai-btn-${blockId}"
+      onclick="blockAiEnhance('${blockId}',this)">✦ Enhance</button>
+    <button class="btn btn-ai btn-sm" id="block-ai-ss-btn-${blockId}"
+      style="display:none">✦ From screenshot</button>
+  </div>`;
+}
 
 async function stepAiEnhance(stepId) {
   const quill = _quillEditors[stepId];
@@ -4295,22 +5052,32 @@ function _annPos(e) {
   const rect = ov.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  return { x: (clientX - rect.left) * (ov.width  / rect.width),
-           y: (clientY - rect.top)  * (ov.height / rect.height) };
+  // Coordinates in CSS-pixel space — context transform handles DPR scaling
+  return { x: clientX - rect.left, y: clientY - rect.top };
 }
 
 // ── Render ───────────────────────────────────────────────────
 
 function _annRender() {
   const cv  = _annCanvas(), ctx = _annCtx();
-  if (_annBaseImg) ctx.drawImage(_annBaseImg, 0, 0, cv.width, cv.height);
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = parseInt(cv.style.width)  || cv.width;
+  const cssH = parseInt(cv.style.height) || cv.height;
+  // Re-apply DPR transform in case context was reset
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  if (_annBaseImg) ctx.drawImage(_annBaseImg, 0, 0, cssW, cssH);
   _annObjects.forEach(obj => _annDrawObj(ctx, obj));
   _annRenderOverlay();
 }
 
 function _annRenderOverlay() {
   const ov  = _annOverlay(), oct = _annOvCtx();
-  oct.clearRect(0, 0, ov.width, ov.height);
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = parseInt(ov.style.width)  || ov.width;
+  const cssH = parseInt(ov.style.height) || ov.height;
+  oct.setTransform(dpr, 0, 0, dpr, 0, 0);
+  oct.clearRect(0, 0, cssW, cssH);
   if (_annSelected >= 0 && _annSelected < _annObjects.length) {
     _annDrawHandles(oct, _annBBox(_annObjects[_annSelected]));
   }
@@ -4399,6 +5166,7 @@ function _annDrawObj(ctx, obj) {
       });
       break;
     }
+    case 'bubble': { _annDrawBubble(ctx, obj); break; }
   }
   ctx.restore();
 }
@@ -4413,6 +5181,15 @@ function _annNormRect(obj) {
 // ── Bounding boxes & selection handles ──────────────────────
 
 function _annBBox(obj) {
+  if (obj.type === 'bubble') {
+    const {x,y,w,h} = _annNormRect(obj);
+    const t = _annBubbleTailHandle(obj);
+    const minX = Math.min(x, t.x) - 8;
+    const minY = Math.min(y, t.y) - 8;
+    const maxX = Math.max(x + w, t.x) + 8;
+    const maxY = Math.max(y + h, t.y) + 8;
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  }
   const PAD = 6;
   switch (obj.type) {
     case 'rect': case 'circle': {
@@ -4476,6 +5253,17 @@ function _annDrawHandles(oct, bb) {
     oct.fill();
     oct.stroke();
   });
+  // Bubble tail handle
+  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
+    const obj = _annObjects[_annSelected];
+    if (obj.type === 'bubble') {
+      const t = _annBubbleTailHandle(obj);
+      oct.fillStyle   = '#FFCC00';
+      oct.strokeStyle = '#b8860b';
+      oct.lineWidth   = 1.5;
+      oct.beginPath(); oct.arc(t.x, t.y, 7, 0, Math.PI*2); oct.fill(); oct.stroke();
+    }
+  }
   oct.restore();
 }
 
@@ -4483,9 +5271,15 @@ function _annDrawHandles(oct, bb) {
 
 function _annHitTest(x, y) {
   const HR = 8; // handle hit radius
-  // Check handles of selected object first
+  // Check handles of selected object first (including bubble tail)
   if (_annSelected >= 0 && _annSelected < _annObjects.length) {
-    const handles = _annHandles(_annBBox(_annObjects[_annSelected]));
+    const obj = _annObjects[_annSelected];
+    if (obj.type === 'bubble') {
+      const t = _annBubbleTailHandle(obj);
+      if (Math.abs(x - t.x) <= HR + 2 && Math.abs(y - t.y) <= HR + 2)
+        return {idx: _annSelected, handle: 8}; // 8 = tail
+    }
+    const handles = _annHandles(_annBBox(obj));
     for (let i = 0; i < handles.length; i++) {
       if (Math.abs(x - handles[i].x) <= HR && Math.abs(y - handles[i].y) <= HR)
         return {idx: _annSelected, handle: i};
@@ -4503,6 +5297,26 @@ function _annHitTest(x, y) {
 // ── Resize helper ────────────────────────────────────────────
 
 function _annApplyResize(obj, snap, handle, dx, dy) {
+  if (obj.type === 'bubble') {
+    if (handle === 8) { // tail
+      obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
+      obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
+    } else {
+      let {x,y,w,h} = snap;
+      switch (handle) {
+        case 0: x+=dx; y+=dy; w-=dx; h-=dy; break;
+        case 1:        y+=dy;         h-=dy; break;
+        case 2:        y+=dy; w+=dx;  h-=dy; break;
+        case 3: x+=dx;        w-=dx;         break;
+        case 4:               w+=dx;         break;
+        case 5: x+=dx;        w-=dx;  h+=dy; break;
+        case 6:                       h+=dy; break;
+        case 7:               w+=dx;  h+=dy; break;
+      }
+      obj.x=x; obj.y=y; obj.w=w; obj.h=h;
+    }
+    return;
+  }
   if (['line','arrow'].includes(obj.type)) {
     // handles: 0 = start endpoint, any other = end endpoint
     if (handle === 0 || handle === 1 || handle === 3) { obj.x1=snap.x1+dx; obj.y1=snap.y1+dy; }
@@ -4529,6 +5343,12 @@ function _annApplyResize(obj, snap, handle, dx, dy) {
 }
 
 function _annMoveObj(obj, snap, dx, dy) {
+  if (obj.type === 'bubble') {
+    obj.x = snap.x + dx; obj.y = snap.y + dy;
+    obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
+    obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
+    return;
+  }
   if (['rect','circle'].includes(obj.type)) {
     obj.x = snap.x+dx; obj.y = snap.y+dy;
   } else if (['line','arrow'].includes(obj.type)) {
@@ -4789,16 +5609,12 @@ function _annOnClick(e) {
   const pos   = _annPos(e);
   const size  = parseInt(document.getElementById('ann-font-size').value);
   const color = document.getElementById('ann-color').value;
-  const ov    = _annOverlay();
-  const rect  = ov.getBoundingClientRect();
-  const scaleX = rect.width  / ov.width;
-  const scaleY = rect.height / ov.height;
   const ti = document.getElementById('ann-text-input');
   _annTextEl = {x: pos.x, y: pos.y, size, color};
   ti.style.display  = 'block';
-  ti.style.left     = (pos.x * scaleX) + 'px';
-  ti.style.top      = ((pos.y - size * 0.15) * scaleY) + 'px';
-  ti.style.fontSize = (size * scaleX) + 'px';
+  ti.style.left     = pos.x + 'px';
+  ti.style.top      = (pos.y - size * 0.15) + 'px';
+  ti.style.fontSize = size + 'px';
   ti.style.color    = color;
   ti.value = '';
   ti.rows  = 1;
@@ -4933,97 +5749,7 @@ function _annBubbleTailHandle(obj) {
   };
 }
 
-// Patch _annHitTest to include bubble tail as handle index 8
-const _annHitTestOrig = _annHitTest;
-function _annHitTest(x, y) {
-  const HR = 8;
-  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
-    const obj = _annObjects[_annSelected];
-    if (obj.type === 'bubble') {
-      const t = _annBubbleTailHandle(obj);
-      if (Math.abs(x - t.x) <= HR + 2 && Math.abs(y - t.y) <= HR + 2)
-        return {idx: _annSelected, handle: 8}; // 8 = tail
-    }
-    const handles = _annHandles(_annBBox(obj));
-    for (let i = 0; i < handles.length; i++) {
-      if (Math.abs(x - handles[i].x) <= HR && Math.abs(y - handles[i].y) <= HR)
-        return {idx: _annSelected, handle: i};
-    }
-  }
-  for (let i = _annObjects.length - 1; i >= 0; i--) {
-    const bb = _annBBox(_annObjects[i]);
-    if (x >= bb.x && x <= bb.x+bb.w && y >= bb.y && y <= bb.y+bb.h)
-      return {idx: i, handle: -1};
-  }
-  return {idx: -1, handle: -1};
-}
 
-// Patch _annDrawHandles to also draw bubble tail handle
-const _annDrawHandlesOrig = _annDrawHandles;
-function _annDrawHandles(oct, bb) {
-  _annDrawHandlesOrig(oct, bb);
-  if (_annSelected >= 0 && _annSelected < _annObjects.length) {
-    const obj = _annObjects[_annSelected];
-    if (obj.type === 'bubble') {
-      const t = _annBubbleTailHandle(obj);
-      oct.save();
-      oct.fillStyle   = '#FFCC00';
-      oct.strokeStyle = '#b8860b';
-      oct.lineWidth   = 1.5;
-      oct.beginPath(); oct.arc(t.x, t.y, 7, 0, Math.PI*2); oct.fill(); oct.stroke();
-      oct.restore();
-    }
-  }
-}
-
-// Patch _annApplyResize for bubble
-const _annApplyResizeOrig = _annApplyResize;
-function _annApplyResize(obj, snap, handle, dx, dy) {
-  if (obj.type === 'bubble') {
-    if (handle === 8) { // tail
-      obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
-      obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
-    } else {
-      _annApplyResizeOrig(obj, snap, handle, dx, dy);
-    }
-    return;
-  }
-  _annApplyResizeOrig(obj, snap, handle, dx, dy);
-}
-
-// Patch _annBBox for bubble (include tail in bounding consideration)
-const _annBBoxOrig = _annBBox;
-function _annBBox(obj) {
-  if (obj.type === 'bubble') {
-    const {x,y,w,h} = _annNormRect(obj);
-    const t = _annBubbleTailHandle(obj);
-    const minX = Math.min(x, t.x) - 8;
-    const minY = Math.min(y, t.y) - 8;
-    const maxX = Math.max(x + w, t.x) + 8;
-    const maxY = Math.max(y + h, t.y) + 8;
-    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
-  }
-  return _annBBoxOrig(obj);
-}
-
-// Patch _annDrawObj for bubble
-const _annDrawObjOrig = _annDrawObj;
-function _annDrawObj(ctx, obj) {
-  if (obj.type === 'bubble') { _annDrawBubble(ctx, obj); return; }
-  _annDrawObjOrig(ctx, obj);
-}
-
-// Patch _annMoveObj for bubble
-const _annMoveObjOrig = _annMoveObj;
-function _annMoveObj(obj, snap, dx, dy) {
-  if (obj.type === 'bubble') {
-    obj.x = snap.x + dx; obj.y = snap.y + dy;
-    obj.tailX = (snap.tailX != null ? snap.tailX : _annBubbleTailHandle(snap).x) + dx;
-    obj.tailY = (snap.tailY != null ? snap.tailY : _annBubbleTailHandle(snap).y) + dy;
-    return;
-  }
-  _annMoveObjOrig(obj, snap, dx, dy);
-}
 
 // ── Bubble text editing ──────────────────────────────────────
 
@@ -5035,8 +5761,8 @@ function _annOpenBubbleTextEditor(objIdx) {
   _annEditingObjIdx = objIdx;
   const ov   = _annOverlay();
   const rect = ov.getBoundingClientRect();
-  const scaleX = rect.width  / ov.width;
-  const scaleY = rect.height / ov.height;
+  // All coordinates already in CSS-pixel space; scaleX/scaleY = 1
+  const scaleX = 1, scaleY = 1;
   const ti = document.getElementById('ann-text-input');
   let sx, sy, sw, fs;
   if (obj.type === 'bubble') {
@@ -5188,13 +5914,17 @@ function _annRenderFavPanel() {
   if (recentWrap) {
     recentWrap.innerHTML = recents.length
       ? recents.map((r, i) =>
-          '<div class="ann-chip" title="' + r.type + '" ' +
-          'onclick=\'_annApplyPreset(' + JSON.stringify(r).replace(/'/g,"\\'") + ')\'>' +
+          '<div class="ann-chip ann-recent-chip" data-idx="' + i + '" title="' + r.type + '">' +
           '<span class="chip-dot" style="background:' + r.color + ';border:1px solid rgba(0,0,0,.2)"></span>' +
           _annToolIcon(r.type) + ' ' + r.type +
           '</div>'
         ).join('')
       : '<span style="font-size:.7rem;color:var(--text2)">No annotations used yet</span>';
+    setTimeout(() => {
+      recentWrap.querySelectorAll('.ann-recent-chip').forEach(el => {
+        el.onclick = () => _annApplyPreset(recents[+el.dataset.idx]);
+      });
+    }, 0);
   }
 
   // Favorites
@@ -5202,14 +5932,22 @@ function _annRenderFavPanel() {
   const favWrap = document.getElementById('ann-fav-chips');
   if (favWrap) {
     favWrap.innerHTML = favs.length
-      ? favs.map(f =>
-          '<div class="ann-chip" title="' + (f.label||f.type) + '">' +
-          '<span class="chip-dot" onclick=\'_annApplyPreset(' + JSON.stringify(f).replace(/'/g,"\\'") + ')\' style="background:' + f.color + ';border:1px solid rgba(0,0,0,.2)"></span>' +
-          '<span onclick=\'_annApplyPreset(' + JSON.stringify(f).replace(/'/g,"\\'") + ')\'>' + (f.label||f.type) + '</span>' +
-          '<span class="chip-del" onclick="_annDeleteFavorite(\'' + f.id + '\')" title="Remove favorite">✕</span>' +
+      ? favs.map((f, fi) =>
+          '<div class="ann-chip" data-fav-idx="' + fi + '" title="' + (f.label||f.type) + '">' +
+          '<span class="chip-dot ann-fav-apply" data-fav-idx="' + fi + '" style="background:' + f.color + ';border:1px solid rgba(0,0,0,.2)"></span>' +
+          '<span class="ann-fav-apply" data-fav-idx="' + fi + '">' + (f.label||f.type) + '</span>' +
+          '<span class="chip-del ann-fav-del" data-fav-id="' + f.id + '" title="Remove favorite">&#x2715;</span>' +
           '</div>'
         ).join('')
       : '<span style="font-size:.7rem;color:var(--text2)">No favorites saved yet</span>';
+    setTimeout(() => {
+      favWrap.querySelectorAll('.ann-fav-apply').forEach(el => {
+        el.onclick = (e) => { e.stopPropagation(); _annApplyPreset(favs[+el.dataset.favIdx]); };
+      });
+      favWrap.querySelectorAll('.ann-fav-del').forEach(el => {
+        el.onclick = (e) => { e.stopPropagation(); _annDeleteFavorite(el.dataset.favId); };
+      });
+    }, 0);
   }
 }
 
@@ -5231,6 +5969,15 @@ function openSessAnnotateDirect(sid, filename) {
   _annOpenModal(url);
 }
 
+function stepThumbAnnotate(ev, stepId, filename) {
+  ev.stopPropagation();
+  const url = '/api/screenshots/file/' + encodeURIComponent(filename);
+  _annFilename = filename;
+  _annImgSrc   = url;
+  _annContext  = {type: 'step', sid: null, stepId, guideId: currentGuideId};
+  _annOpenModal(url);
+}
+
 function _annOpenModal(url) {
   _annObjects  = [];
   _annObjHist  = [];
@@ -5245,18 +5992,25 @@ function _annOpenModal(url) {
   img.crossOrigin = 'anonymous';
   img.onload = () => {
     const cv  = _annCanvas(), ov = _annOverlay();
+    const dpr = window.devicePixelRatio || 1;
     const maxW = Math.floor(window.innerWidth  * 0.90);
     const maxH = Math.floor(window.innerHeight * 0.82);
     const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
-    const w = Math.round(img.naturalWidth * scale);
-    const h = Math.round(img.naturalHeight * scale);
-    cv.width = ov.width = w;
-    cv.height = ov.height = h;
-    cv.style.width  = ov.style.width  = w + 'px';
-    cv.style.height = ov.style.height = h + 'px';
-    _annBaseImg = img;
-    _annCtx().drawImage(img, 0, 0, w, h);
-    _annBindEvents(ov);
+    const cssW = Math.round(img.naturalWidth  * scale);
+    const cssH = Math.round(img.naturalHeight * scale);
+    // Physical pixel dimensions (sharp on Retina)
+    cv.width  = ov.width  = Math.round(cssW * dpr);
+    cv.height = ov.height = Math.round(cssH * dpr);
+    // CSS display size
+    cv.style.width  = ov.style.width  = cssW + 'px';
+    cv.style.height = ov.style.height = cssH + 'px';
+     // Bind events first (cloneNode replaces ov in DOM) then set transforms on the live elements
+     _annBindEvents(ov);
+     // Scale context so coordinates stay in CSS-pixel space
+     _annCtx().setTransform(dpr, 0, 0, dpr, 0, 0);
+     _annOvCtx().setTransform(dpr, 0, 0, dpr, 0, 0);
+     _annBaseImg = img;
+     _annCtx().drawImage(img, 0, 0, cssW, cssH);
   };
   img.onerror = () => {
     _annCtx().fillStyle='#f85149';
@@ -5268,29 +6022,43 @@ function _annOpenModal(url) {
 // ── Save ─────────────────────────────────────────────────────
 
 async function annSave() {
-  _annCommitText();
-  // Final composite: base image + all objects
-  _annRender();
-  const cv  = _annCanvas();
-  const b64 = cv.toDataURL('image/png');
-  const url = _annContext.type === 'session'
-    ? '/api/sessions/' + _annContext.sid + '/screenshots/' + _annFilename + '/annotate'
-    : '/api/screenshots/' + _annFilename + '/annotate';
-  const res = await fetch(url, {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({image: b64}),
-  });
-  const d = await res.json();
-  if (d.error) { alert('Save failed: ' + d.error); return; }
-  closeModal('modal-annotate');
-  if (_annContext.type === 'session') {
-    const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
-    if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
-  } else if (_annContext.type === 'step') {
-    // Refresh just this step's thumbnails — the file is already in the repo
-    await loadGuide(_annContext.guideId || currentGuideId);
-  } else {
-    await repoLoad();
+  try {
+    _annCommitText();
+    // Final composite: base image + all objects
+    _annRender();
+    const cv  = _annCanvas();
+    let b64;
+    try {
+      b64 = cv.toDataURL('image/png');
+    } catch (taintErr) {
+      alert('Cannot export canvas (possible cross-origin taint): ' + taintErr);
+      console.error('annSave toDataURL failed:', taintErr);
+      return;
+    }
+    if (!b64 || b64 === 'data:,') { alert('Canvas export returned empty data.'); return; }
+    console.log('annSave: exporting', Math.round(b64.length / 1024), 'KB, filename:', _annFilename, 'ctx:', JSON.stringify(_annContext));
+    const url = _annContext.type === 'session'
+      ? '/api/sessions/' + _annContext.sid + '/screenshots/' + _annFilename + '/annotate'
+      : '/api/screenshots/' + _annFilename + '/annotate';
+    const res = await fetch(url, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({image: b64}),
+    });
+    const d = await res.json();
+    if (d.error) { alert('Save failed: ' + d.error); return; }
+    closeModal('modal-annotate');
+    if (_annContext.type === 'session') {
+      const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
+      if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
+    } else if (_annContext.type === 'step') {
+      // Refresh just this step's thumbnails — the file is already in the repo
+      await loadGuide(_annContext.guideId || currentGuideId);
+    } else {
+      await repoLoad();
+    }
+  } catch (err) {
+    console.error('annSave unexpected error:', err);
+    alert('Save error: ' + err);
   }
 }
 
@@ -5384,7 +6152,13 @@ async function repoAttach() {
   if (!_repoSelected) return;
   const item = _repoItems.find(i => i.filename === _repoSelected);
   const caption = item ? (item.caption || '') : '';
-  if (_repoBlockTarget) {
+  if (_repoStepTarget && _repoBlockTarget) {
+    // Step-level block attach
+    await fetch(`/api/guides/${currentGuideId}/step/${_repoStepTarget}/blocks/${_repoBlockTarget}/attach-screenshot`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({filename: _repoSelected, caption}),
+    });
+  } else if (_repoBlockTarget && typeof _repoBlockTarget === 'object') {
     const {secId, blockId} = _repoBlockTarget;
     await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}/attach-screenshot`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -5476,7 +6250,11 @@ async function ssUploadAndAttach(input, stepId) {
 
 // Preview
 function ssPreview(url, caption) {
-  document.getElementById('ss-preview-img').src = url;
+  const img = document.getElementById('ss-preview-img');
+  img.src = url;
+  img.dataset.previewUrl = url;
+  img.dataset.sid      = '';
+  img.dataset.filename = '';
   document.getElementById('ss-preview-cap').textContent = caption;
   document.getElementById('modal-ss-preview').classList.add('open');
 }
@@ -5540,17 +6318,38 @@ function blockTextEdit(blockId, show) {
   body.style.display = show ? 'none' : '';
   edit.style.display = show ? 'block' : 'none';
   if (show) {
-    const ta = document.getElementById('block-ta-' + blockId);
-    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    // Strip the drag-handle span before passing to Quill
+    const clone = body.cloneNode(true);
+    clone.querySelectorAll('.block-drag-handle').forEach(el => el.remove());
+    const content = clone.innerHTML || '';
+    setTimeout(() => {
+      _initBlockQuill(blockId, 'block-qhost-' + blockId, content);
+      // Wire "From screenshot" — look at next sibling blocks for a screenshot
+      const ssBtn = document.getElementById('block-ai-ss-btn-' + blockId);
+      if (ssBtn) {
+        let fname = '';
+        let el = document.getElementById('block-' + blockId);
+        while (el && (el = el.nextElementSibling)) {
+          const img = el.querySelector('.block-ss-thumb img');
+          if (img) { fname = img.src.split('/').pop().split('?')[0]; break; }
+        }
+        if (fname) {
+          ssBtn.style.display = '';
+          ssBtn.onclick = () => blockAiFromScreenshot(blockId, fname, '', ssBtn);
+        } else {
+          ssBtn.style.display = 'none';
+        }
+      }
+    }, 30);
   }
 }
 
 async function blockTextSave(secId, blockId) {
-  const ta = document.getElementById('block-ta-' + blockId);
-  if (!ta) return;
+  const q = _blockQuills[blockId];
+  const content = q ? q.getSemanticHTML() : '';
   await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({content: ta.value}),
+    body: JSON.stringify({content}),
   });
   await loadGuide(currentGuideId);
 }
@@ -5664,6 +6463,278 @@ async function secDrop(e, targetSecId) {
   else await loadGuide(currentGuideId);
 }
 
+// ── Callout picker ────────────────────────────────────────────
+let _calloutCtx = null; // {scope:'step'|'section', targetId, afterBlockId}
+
+function openCalloutPicker(scope, targetId, afterBlockId) {
+  _calloutCtx = {scope, targetId, afterBlockId: afterBlockId || null};
+  document.getElementById('modal-callout').classList.add('open');
+}
+
+async function _calloutPick(calloutType) {
+  closeModal('modal-callout');
+  if (!_calloutCtx) return;
+  const {scope, targetId, afterBlockId} = _calloutCtx;
+  const url = scope === 'step'
+    ? `/api/guides/${currentGuideId}/step/${targetId}/blocks`
+    : `/api/guides/${currentGuideId}/section/${targetId}/blocks`;
+  await fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'callout', callout_type: calloutType, content:'', after: afterBlockId}),
+  });
+  await loadGuide(currentGuideId);
+  // Prompt user to enter text immediately
+  _calloutCtx = null;
+}
+
+function _calloutEditPrompt(blockId, currentContent, saveHandler) {
+  const text = prompt('Edit callout text:', currentContent);
+  if (text === null) return;
+  saveHandler(text);
+}
+
+function cancelCalloutEdit(blockId) {
+  const panel = document.getElementById('callout-edit-' + blockId);
+  const content = document.getElementById('callout-content-' + blockId);
+  if (panel) panel.style.display = 'none';
+  if (content) content.style.display = '';
+  delete _blockQuills[blockId];
+}
+
+function _openCalloutEdit(blockId) {
+  const panel = document.getElementById('callout-edit-' + blockId);
+  const content = document.getElementById('callout-content-' + blockId);
+  if (!panel) return;
+  content.style.display = 'none';
+  panel.style.display = 'block';
+  const existing = content.innerHTML || '';
+  setTimeout(() => {
+    _initBlockQuill(blockId, 'callout-qhost-' + blockId, existing);
+    // Callouts don't have a screenshot to generate from — hide that button
+    const ssBtn = document.getElementById('block-ai-ss-btn-' + blockId);
+    if (ssBtn) ssBtn.style.display = 'none';
+  }, 30);
+}
+
+async function stepBlockCalloutEdit(stepId, blockId) {
+  _openCalloutEdit(blockId);
+  // patch Save button to call stepBlockCalloutSave
+  const panel = document.getElementById('callout-edit-' + blockId);
+  if (panel) {
+    const saveBtn = panel.querySelector('.btn-primary');
+    if (saveBtn) saveBtn.onclick = () => stepBlockCalloutSave(stepId, blockId);
+  }
+}
+
+async function stepBlockCalloutSave(stepId, blockId) {
+  const q = _blockQuills[blockId];
+  const content = q ? q.getSemanticHTML() : '';
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({content}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function blockCalloutEdit(secId, blockId) {
+  _openCalloutEdit(blockId);
+  const panel = document.getElementById('callout-edit-' + blockId);
+  if (panel) {
+    const saveBtn = panel.querySelector('.btn-primary');
+    if (saveBtn) saveBtn.onclick = () => blockCalloutSave(secId, blockId);
+  }
+}
+
+async function blockCalloutSave(secId, blockId) {
+  const q = _blockQuills[blockId];
+  const content = q ? q.getSemanticHTML() : '';
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({content}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Step content blocks ───────────────────────────────────────
+
+async function stepBlockAddText(stepId, afterBlockId) {
+  const res = await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'text', content:'', after: afterBlockId}),
+  });
+  const block = await res.json();
+  await loadGuide(currentGuideId);
+  // Auto-open the editor for the new block
+  setTimeout(() => stepBlockTextEdit(stepId, block.id, true), 80);
+}
+
+async function stepBlockAddScreenshot(stepId, afterBlockId) {
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'screenshot', path:'', caption:'', after: afterBlockId}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+function stepBlockTextEdit(stepId, blockId, open) {
+  const body = document.querySelector(`#step-block-${blockId} .block-text-body`);
+  const edit = document.getElementById(`step-block-edit-${blockId}`);
+  if (!body || !edit) return;
+  body.style.display = open ? 'none' : '';
+  edit.style.display = open ? 'block' : 'none';
+  if (open) {
+    // Strip the drag-handle span before passing to Quill
+    const clone = body.cloneNode(true);
+    clone.querySelectorAll('.block-drag-handle').forEach(el => el.remove());
+    const content = clone.innerHTML || '';
+    setTimeout(() => {
+      _initBlockQuill(blockId, `step-block-qhost-${blockId}`, content);
+      // Wire "From screenshot" — look at next sibling blocks for a screenshot
+      const ssBtn = document.getElementById('block-ai-ss-btn-' + blockId);
+      if (ssBtn) {
+        let fname = '';
+        let el = document.getElementById('step-block-' + blockId);
+        while (el && (el = el.nextElementSibling)) {
+          const img = el.querySelector('.block-ss-thumb img');
+          if (img) { fname = img.src.split('/').pop().split('?')[0]; break; }
+        }
+        if (fname) {
+          ssBtn.style.display = '';
+          ssBtn.onclick = () => blockAiFromScreenshot(blockId, fname, '', ssBtn);
+        } else {
+          ssBtn.style.display = 'none';
+        }
+      }
+    }, 30);
+  }
+}
+
+async function stepBlockTextSave(stepId, blockId) {
+  const q = _blockQuills[blockId];
+  const content = q ? q.getSemanticHTML() : '';
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({content}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function stepBlockDelete(stepId, blockId) {
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/${blockId}`, {method:'DELETE'});
+  await loadGuide(currentGuideId);
+}
+
+async function stepBlockSsCaption(stepId, blockId, caption) {
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/${blockId}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({caption}),
+  });
+}
+
+async function stepBlockSsUpload(input, stepId, blockId) {
+  if (!input.files.length) return;
+  const form = new FormData();
+  form.append('files', input.files[0]);
+  const res  = await fetch('/api/screenshots/upload', {method:'POST', body: form});
+  const arr  = await res.json();
+  if (!arr.length) return;
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/${blockId}/attach-screenshot`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({filename: arr[0].filename, caption: arr[0].filename}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+function stepBlockSsPick(stepId, blockId) {
+  _repoStepTarget = stepId;
+  _repoBlockTarget = blockId;
+  _repoSectionTarget = null;
+  repoLoad().then(() => document.getElementById('modal-ss-repo').classList.add('open'));
+}
+
+function stepBlockAnnotate(stepId, blockId, fname) {
+  if (!fname) return;
+  const url = '/api/screenshots/file/' + encodeURIComponent(fname);
+  _annFilename = fname;
+  _annImgSrc   = url;
+  _annContext  = {type:'step', sid:null, stepId, guideId: currentGuideId};
+  _annOpenModal(url);
+}
+
+async function migrateStepScreenshots(stepId) {
+  const sec  = currentGuide.sections.find(s => s.steps.some(st => st.id === stepId));
+  const step = sec && sec.steps.find(st => st.id === stepId);
+  if (!step || !step.screenshots.length) return;
+  for (const ss of step.screenshots) {
+    const fname = ss.path.split('/').pop();
+    await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({type:'screenshot', path: fname, caption: ss.caption || fname}),
+    });
+  }
+  await loadGuide(currentGuideId);
+}
+
+// ── Step block drag-to-reorder ─────────────────────────────────
+let _stepBlockDragId = null, _stepBlockDragStepId = null;
+
+function stepBlockDragStart(e, stepId, blockId) {
+  _stepBlockDragId = blockId; _stepBlockDragStepId = stepId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.stopPropagation();
+}
+async function stepBlockDrop(e, stepId, targetBlockId) {
+  e.preventDefault(); e.stopPropagation();
+  document.querySelectorAll('.block-item').forEach(b => b.classList.remove('block-drag-over'));
+  if (!_stepBlockDragId || _stepBlockDragId === targetBlockId || _stepBlockDragStepId !== stepId) return;
+  const sec  = currentGuide.sections.find(s => s.steps.some(st => st.id === stepId));
+  const step = sec && sec.steps.find(st => st.id === stepId);
+  if (!step) return;
+  const ids = step.blocks.map(b => b.id);
+  const from = ids.indexOf(_stepBlockDragId), to = ids.indexOf(targetBlockId);
+  if (from === -1 || to === -1) return;
+  ids.splice(to, 0, ids.splice(from, 1)[0]);
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/reorder`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order: ids}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+// ── Step drag-to-reorder ────────────────────────────────────────
+let _stepDragId = null;
+
+function stepDragStart(e, stepId) {
+  _stepDragId = stepId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.stopPropagation();
+}
+function stepDragOver(e, el) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (el.dataset.stepid !== _stepDragId) el.classList.add('step-drag-over');
+}
+function stepDragLeave(el) { el.classList.remove('step-drag-over'); }
+async function stepDrop(e, targetStepId) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.querySelectorAll('.step-card').forEach(c => c.classList.remove('step-drag-over'));
+  if (!_stepDragId || _stepDragId === targetStepId) return;
+  // Find which section contains these steps
+  const sec = currentGuide.sections.find(s => s.steps.some(st => st.id === _stepDragId));
+  if (!sec) return;
+  const ids = sec.steps.map(st => st.id);
+  const fromIdx = ids.indexOf(_stepDragId);
+  const toIdx   = ids.indexOf(targetStepId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+  const res = await fetch(`/api/guides/${currentGuideId}/section/${sec.id}/steps/reorder`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({order: ids}),
+  });
+  const data = await res.json();
+  if (data.guide) { currentGuide = data.guide; renderGuide(); }
+  else await loadGuide(currentGuideId);
+}
+
 // ── AI rewrites ───────────────────────────────────────────────
 let _aiCallback = null;
 
@@ -5700,6 +6771,25 @@ async function rewriteSection(sectionId) {
     });
     await loadGuide(currentGuideId);
   });
+}
+
+async function normalizeSection(sectionId) {
+  const sec = currentGuide && currentGuide.sections && currentGuide.sections.find(s => s.id === sectionId);
+  const blockCount = sec ? sec.steps.reduce((n, s) => n + (s.blocks || []).filter(b => b.type === 'text' || b.type === 'callout').length, 0) + (sec.blocks || []).filter(b => b.type === 'text' || b.type === 'callout').length : 0;
+
+  if (!confirm(`Normalize all text and callout blocks in this section?\n\nThe AI will rewrite them for consistent tone, clean paragraph formatting, and proper HTML structure. Technical content will not be changed.`)) return;
+
+  showToast('Normalizing\u2026 this may take a moment.', 'info');
+
+  try {
+    const res  = await fetch(`/api/guides/${currentGuideId}/section/${sectionId}/normalize`, {method:'POST'});
+    const data = await res.json();
+    if (data.error) { showToast('Normalize failed: ' + data.error, true); return; }
+    await loadGuide(currentGuideId);
+    showToast(`\u2714 Normalized ${data.updated} block(s)`);
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
 }
 
 async function rewriteIntro() {
@@ -6566,9 +7656,21 @@ function sessPreviewAnnotate() {
   const img      = document.getElementById('ss-preview-img');
   const sid      = img.dataset.sid;
   const filename = img.dataset.filename;
-  if (!sid || !filename) return;
   closeModal('modal-ss-preview');
-  openSessAnnotateDirect(sid, filename);
+  if (sid && filename) {
+    // Session screenshot
+    openSessAnnotateDirect(sid, filename);
+  } else {
+    // Repo / step screenshot — extract filename from URL
+    const url   = img.dataset.previewUrl || img.src;
+    const fname = decodeURIComponent(url.split('/').pop().split('?')[0]);
+    _annFilename = fname;
+    _annImgSrc   = url;
+    _annContext  = currentGuideId
+      ? {type: 'step', sid: null, stepId: null, guideId: currentGuideId}
+      : {type: 'repo', sid: null};
+    _annOpenModal(url);
+  }
 }
 
 async function ingestVideoSession(sid, videoPath) {
@@ -6638,20 +7740,27 @@ async function loadAISectionSessions() {
   try {
     const res = await fetch('/api/sessions');
     const sessions = await res.json();
-    // AI section ingest needs screenshots — filter out video-only sessions
-    const ssOnly = sessions.filter(s => s.screenshot_count > 0 && !s.has_video);
+    const ssOnly = sessions.filter(s => s.screenshot_count > 0);
     if (!ssOnly.length) {
       list.innerHTML = '<div style="color:var(--text2);font-size:.8rem">No screenshot sessions yet. Use 📸 Screenshots mode in the capture panel.</div>';
       return;
     }
-    list.innerHTML = ssOnly.map(s =>
-      '<div class="session-row" id="aisr-' + s.session_id + '" onclick="selectAISecSession(' +
-        JSON.stringify(s.session_id) + ',' + JSON.stringify(s.folder_path) + ')">' +
+    list.innerHTML = ssOnly.map(s => {
+      const sid  = s.session_id.replace(/"/g, '&quot;');
+      const path = (s.folder_path || '').replace(/"/g, '&quot;');
+      return '<div class="session-row" id="aisr-' + sid + '"' +
+        ' data-sid="' + sid + '" data-path="' + path + '">' +
         '<span class="ss-id">' + s.name + '</span>' +
         '<span class="ss-count">📸 ' + s.screenshot_count + ' screenshot' + (s.screenshot_count !== 1 ? 's' : '') + ' · ' + s.size_mb + ' MB</span>' +
         '<span class="ss-date">' + s.recorded_at + '</span>' +
-      '</div>'
-    ).join('');
+        '</div>';
+    }).join('');
+    // Delegated click — attach once after render
+    list.onclick = e => {
+      const row = e.target.closest('.session-row[data-sid]');
+      if (!row) return;
+      selectAISecSession(row.dataset.sid, row.dataset.path);
+    };
   } catch(e) {
     list.innerHTML = '<div style="color:var(--red);font-size:.8rem">Failed to load sessions</div>';
   }
@@ -6711,6 +7820,43 @@ async function submitAddAISection() {
 }
 
 // ── Modals ────────────────────────────────────────────────────
+// ── Expected Result toggle ────────────────────────────────────
+let _showExpected = localStorage.getItem('showExpected') !== 'false';
+
+function _applyExpectedVisibility() {
+  document.querySelectorAll('.expected').forEach(el => {
+    el.style.display = _showExpected ? '' : 'none';
+  });
+  const lbl = document.getElementById('toggle-expected-label');
+  if (lbl) lbl.textContent = _showExpected ? 'ON' : 'OFF';
+  const btn = document.getElementById('toggle-expected-btn');
+  if (btn) btn.style.opacity = _showExpected ? '1' : '0.55';
+}
+
+function toggleExpectedResults() {
+  _showExpected = !_showExpected;
+  localStorage.setItem('showExpected', _showExpected);
+  _applyExpectedVisibility();
+}
+
+function showToast(msg, type) {
+  // type: 'info' (default), 'success', 'error', true (= error for legacy callers)
+  const isError   = type === 'error' || type === true;
+  const isSuccess = type === 'success';
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = [
+    'position:fixed', 'bottom:1.5rem', 'right:1.5rem', 'z-index:9999',
+    'padding:.6rem 1.1rem', 'border-radius:6px', 'font-size:.84rem',
+    'box-shadow:0 2px 12px rgba(0,0,0,.4)', 'max-width:340px',
+    'color:#fff', 'pointer-events:none',
+    'background:' + (isError ? '#c0392b' : isSuccess ? '#1a7f4f' : '#1a6fa8'),
+    'transition:opacity .4s',
+  ].join(';');
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 420); }, 2800);
+}
+
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
@@ -6725,6 +7871,25 @@ document.addEventListener('keydown', e => {
 loadLibrary();
 loadModels();
 </script>
+
+<!-- Step Capture Modal — kept as direct body child so position:fixed is never clipped -->
+<div class="modal-overlay" id="modal-step-capture">
+  <div class="modal" style="max-width:420px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.85rem">
+      <h3 style="margin:0;font-size:1rem">&#x1f4f8; Capture Screenshot</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-step-capture')">&#x2715;</button>
+    </div>
+    <div style="margin-bottom:.6rem;font-size:.82rem;color:var(--text2)">Capture window</div>
+    <div style="display:flex;gap:6px;margin-bottom:.85rem">
+      <select id="step-cap-win-select" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:4px 7px;font-size:.82rem;outline:none">
+        <option value="">-- Full screen --</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="stepCapLoadWindows()" title="Refresh window list">&#x27f3;</button>
+    </div>
+    <button id="step-cap-btn" class="btn btn-primary" style="width:100%;padding:9px;font-size:.95rem" onclick="stepCapDoCapture()">&#x1f4f8; Capture</button>
+    <div id="step-cap-status" style="margin-top:.6rem;font-size:.8rem;color:var(--text2);min-height:1.1em;text-align:center"></div>
+  </div>
+</div>
 </body>
 </html>"""
 

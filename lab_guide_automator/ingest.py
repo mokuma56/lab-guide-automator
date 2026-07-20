@@ -39,15 +39,10 @@ async def describe_frames(
         if progress_callback:
             progress_callback(f"Describing screenshot {i + 1} of {total}: {frame.name}")
         description = await ai_client.describe_screenshot(settings, frame, lab_context)
-        # Infer timestamp from filename: frame_0001.jpg → 0, frame_0002.jpg → N, etc.
-        try:
-            idx = int(frame.stem.split("_")[-1]) - 1
-        except ValueError:
-            idx = i
         results.append({
             "frame": frame,
             "description": description,
-            "index": idx,
+            "index": i,
         })
     return results
 

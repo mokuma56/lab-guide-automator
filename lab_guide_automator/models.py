@@ -39,17 +39,19 @@ class LabStep(BaseModel):
     expected_result: str = ""
     notes: str = ""        # instructor / proctor notes
     screenshots: list[StepScreenshot] = []
+    blocks: list["ContentBlock"] = []   # ordered text+screenshot blocks (replaces screenshots)
     code_blocks: list[str] = []
     verified: bool = False
 
 
 class ContentBlock(BaseModel):
-    """An ordered content block inside a section — either text or a screenshot."""
+    """An ordered content block inside a section or step."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    type: Literal["text", "screenshot"] = "text"
-    content: str = ""    # markdown text (type=text)
-    path: str = ""       # e.g. screenshots/foo.png (type=screenshot)
-    caption: str = ""    # alt/caption (type=screenshot)
+    type: Literal["text", "screenshot", "callout"] = "text"
+    content: str = ""         # markdown text (type=text or callout)
+    callout_type: str = ""    # expected_result | note | caution | congratulations | tip
+    path: str = ""            # filename (type=screenshot)
+    caption: str = ""         # alt/caption (type=screenshot)
 
 
 class LabSection(BaseModel):

@@ -3,18 +3,209 @@ Export pipeline — renders a LabGuide to multiple output formats.
 
 Supported:
   - Markdown (.md)
-  - PDF (via weasyprint)
+  - PDF (via Chrome headless)
   - DOCX (via python-docx)
-  - HTML (Moodle-compatible)
+  - HTML (standalone, embedded images)
   - MkDocs site (generate docs/ tree + mkdocs.yml, optional git push)
   - Narrated video (TTS + ffmpeg overlay)
 """
 from __future__ import annotations
+import re
 import subprocess
 from pathlib import Path
 from datetime import datetime
+import html as _html_mod
+from html.parser import HTMLParser as _HTMLParser
 
 from lab_guide_automator.models import LabGuide, LabSection, LabStep
+
+
+def _md_to_html(text: str) -> str:
+    """Convert simple Markdown to HTML (headings, bold, italic, lists, hr, paragraphs)."""
+    lines = text.split("\n")
+    out = []
+    in_ul = False
+    in_ol = False
+
+    def close_lists():
+        nonlocal in_ul, in_ol
+        if in_ul:
+            out.append("</ul>")
+            in_ul = False
+        if in_ol:
+            out.append("</ol>")
+            in_ol = False
+
+    def inline(s: str) -> str:
+        s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
+        s = re.sub(r'\*(.+?)\*', r'<em>\1</em>', s)
+        s = re.sub(r'\[(.+?)\]\((https?://[^\)]+)\)', r'<a href="\2">\1</a>', s)
+        s = re.sub(r'`(.+?)`', r'<code>\1</code>', s)
+        return s
+
+    for line in lines:
+        # Headings
+        m = re.match(r'^(#{1,4})\s+(.*)', line)
+        if m:
+            close_lists()
+            lvl = len(m.group(1)) + 1  # shift: # → h2, ## → h3, etc.
+            lvl = min(lvl, 6)
+            out.append(f"<h{lvl}>{inline(m.group(2))}</h{lvl}>")
+            continue
+        # HR
+        if re.match(r'^-{3,}$|^\*{3,}$', line.strip()):
+            close_lists()
+            out.append("<hr>")
+            continue
+        # Unordered list
+        m = re.match(r'^[-*]\s+(.*)', line)
+        if m:
+            if not in_ul:
+                close_lists()
+                out.append("<ul>")
+                in_ul = True
+            out.append(f"<li>{inline(m.group(1))}</li>")
+            continue
+        # Ordered list
+        m = re.match(r'^\d+\.\s+(.*)', line)
+        if m:
+            if not in_ol:
+                close_lists()
+                out.append("<ol>")
+                in_ol = True
+            out.append(f"<li>{inline(m.group(1))}</li>")
+            continue
+        # Empty line
+        if not line.strip():
+            close_lists()
+            continue
+        # Paragraph
+        close_lists()
+        out.append(f"<p>{inline(line)}</p>")
+
+    close_lists()
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# HTML → clean Markdown helper (handles Quill output)
+# ---------------------------------------------------------------------------
+
+class _QuillToMd(_HTMLParser):
+    """Lightweight Quill HTML → Markdown converter (stdlib only)."""
+
+    _BLOCK_TAGS = {"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+                   "blockquote", "pre", "tr"}
+    _IGNORE_TAGS = {"span", "a", "em", "i", "u", "s", "code"}  # inline — pass through text
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+        self._bold = 0
+        self._italic = 0
+        self._link_href = ""
+        self._in_li = False
+        self._li_prefix = ""
+
+    def handle_starttag(self, tag, attrs):
+        attr = dict(attrs)
+        if tag == "strong" or tag == "b":
+            self._bold += 1
+        elif tag == "em" or tag == "i":
+            self._italic += 1
+        elif tag == "a":
+            self._link_href = attr.get("href", "")
+        elif tag in ("ol", "ul"):
+            self._li_prefix = "1. " if tag == "ol" else "- "
+        elif tag == "li":
+            self._in_li = True
+            self._parts.append(self._li_prefix)
+        elif tag in ("br",):
+            self._parts.append("  \n")
+
+    def handle_endtag(self, tag):
+        if tag == "strong" or tag == "b":
+            self._bold = max(0, self._bold - 1)
+        elif tag == "em" or tag == "i":
+            self._italic = max(0, self._italic - 1)
+        elif tag == "a":
+            self._link_href = ""
+        elif tag in self._BLOCK_TAGS:
+            self._parts.append("\n\n")
+            self._in_li = False
+
+    def handle_data(self, data):
+        # Strip the drag-handle glyph that may have leaked in
+        data = data.replace("\u283f", "").replace("\u28ff", "")
+        if not data:
+            return
+        if self._bold:
+            data = f"**{data}**"
+        if self._italic:
+            data = f"*{data}*"
+        if self._link_href:
+            data = f"[{data}]({self._link_href})"
+        self._parts.append(data)
+
+    def handle_entityref(self, name):
+        self._parts.append(_html_mod.unescape(f"&{name};"))
+
+    def handle_charref(self, name):
+        self._parts.append(_html_mod.unescape(f"&#{name};"))
+
+    def result(self) -> str:
+        import re
+        text = "".join(self._parts)
+        # Collapse excessive blank lines, strip leading/trailing whitespace
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        # Replace non-breaking spaces
+        text = text.replace("\xa0", " ").replace("&nbsp;", " ")
+        return text.strip()
+
+
+def _html_to_md(html: str) -> str:
+    """Convert Quill-generated HTML to clean Markdown text."""
+    if not html:
+        return ""
+    # Strip the drag-handle character at raw level too
+    html = html.replace("\u283f", "").replace("⠿", "")
+    parser = _QuillToMd()
+    parser.feed(html)
+    return parser.result()
+
+
+def _md_strip(text: str) -> str:
+    """Strip Markdown syntax from text → plain text suitable for DOCX paragraphs."""
+    if not text:
+        return ""
+    import re as _re
+    # Remove heading markers
+    text = _re.sub(r'^#{1,6}\s+', '', text, flags=_re.MULTILINE)
+    # Bold/italic
+    text = _re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = _re.sub(r'\*(.+?)\*', r'\1', text)
+    text = _re.sub(r'__(.+?)__', r'\1', text)
+    text = _re.sub(r'_(.+?)_', r'\1', text)
+    # Links
+    text = _re.sub(r'\[(.+?)\]\([^\)]+\)', r'\1', text)
+    # Inline code
+    text = _re.sub(r'`(.+?)`', r'\1', text)
+    # HR
+    text = _re.sub(r'^[-*]{3,}$', '', text, flags=_re.MULTILINE)
+    # List bullets
+    text = _re.sub(r'^[-*]\s+', '', text, flags=_re.MULTILINE)
+    text = _re.sub(r'^\d+\.\s+', '', text, flags=_re.MULTILINE)
+    return text.strip()
+
+
+def _to_plain(text: str) -> str:
+    """Convert either Quill HTML or Markdown to clean plain text for DOCX paragraphs."""
+    if not text or not text.strip():
+        return ""
+    if text.strip().startswith("<"):
+        # HTML → markdown → strip markdown markers → plain text
+        return _md_strip(_html_to_md(text))
+    return _md_strip(text)
 
 
 def _ffmpeg_bin() -> str:
@@ -30,6 +221,29 @@ def _ffmpeg_bin() -> str:
 # ─────────────────────────────────────────────────────────────
 # Markdown renderer (shared base for all text exports)
 # ─────────────────────────────────────────────────────────────
+
+_CALLOUT_MD = {
+    "expected_result": (">", "**✓ Expected Result:**"),
+    "note":            (">", "**📝 Note:**"),
+    "caution":         (">", "**⚠ Caution:**"),
+    "congratulations": (">", "**🎉 Congratulations:**"),
+}
+
+
+def _render_block_md(blk, include_screenshots: bool = True) -> list[str]:
+    """Return markdown lines for a single ContentBlock."""
+    lines: list[str] = []
+    if blk.type == "text" and blk.content:
+        lines += [blk.content, ""]
+    elif blk.type == "screenshot" and blk.path and include_screenshots:
+        fname = Path(blk.path).name
+        lines += [f"![]({fname})", ""]
+    elif blk.type == "callout":
+        prefix, label = _CALLOUT_MD.get(blk.callout_type, (">", f"**{blk.callout_type}:**"))
+        body = blk.content or ""
+        lines += [f"{prefix} {label} {body}", ""]
+    return lines
+
 
 def render_markdown(guide: LabGuide, include_screenshots: bool = True) -> str:
     lines: list[str] = []
@@ -67,20 +281,34 @@ def render_markdown(guide: LabGuide, include_screenshots: bool = True) -> str:
         lines += [f"## {sec.title}", ""]
         if sec.overview:
             lines += [sec.overview, ""]
+        # Section blocks (new system)
+        sec_blocks = getattr(sec, "blocks", []) or []
+        if sec_blocks:
+            for blk in sec_blocks:
+                lines += _render_block_md(blk, include_screenshots)
+        elif include_screenshots:
+            for ss in getattr(sec, "screenshots", []):
+                lines += [f"![]({ss.path})", ""]
+
         for step in sec.steps:
             lines += [f"### Step {step.order}: {step.title}", ""]
-            lines += [step.instruction, ""]
+            lines += [_html_to_md(step.instruction), ""]
             if step.code_blocks:
                 for cb in step.code_blocks:
                     lines += ["```", cb, "```", ""]
-            if include_screenshots and step.screenshots:
+            # Step blocks (new system)
+            step_blocks = getattr(step, "blocks", []) or []
+            if step_blocks:
+                for blk in step_blocks:
+                    lines += _render_block_md(blk, include_screenshots)
+            elif include_screenshots and step.screenshots:
                 for ss in step.screenshots:
-                    caption = ss.caption or step.title
-                    lines += [f"![{caption}]({ss.path})", ""]
-            if step.expected_result:
-                lines += [f"> **Expected Result:** {step.expected_result}", ""]
-            if step.notes:
-                lines += [f"!!! note", f"    {step.notes}", ""]
+                    lines += [f"![]({ss.path})", ""]
+            # Legacy dedicated fields
+            if getattr(step, "expected_result", ""):
+                lines += [f"> **✓ Expected Result:** {step.expected_result}", ""]
+            if getattr(step, "notes", ""):
+                lines += [f"> **📝 Note:** {step.notes}", ""]
 
     if guide.conclusion:
         lines += ["## Conclusion", "", guide.conclusion, ""]
@@ -107,12 +335,64 @@ h3 { color: #1f7a8c; }
 .tag { background: #e8f7fc; color: #005073; border-radius: 4px; padding: 2px 8px; font-size: .8rem; }
 .objective li { margin: .4rem 0; }
 .step { border-left: 4px solid #00bceb; padding: 0 1rem; margin: 1rem 0; }
-.expected { background: #f0faf0; border-left: 4px solid #4caf50; padding: .5rem 1rem; border-radius: 4px; }
-.note { background: #fff8e1; border-left: 4px solid #ffc107; padding: .5rem 1rem; border-radius: 4px; }
+.callout { padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; border-left-width: 4px; border-left-style: solid; }
+.callout-expected { background: #f0faf0; border-left-color: #4caf50; }
+.callout-note     { background: #e3f2fd; border-left-color: #2196f3; }
+.callout-caution  { background: #fff3e0; border-left-color: #ff9800; }
+.callout-congrats { background: #f3e5f5; border-left-color: #9c27b0; }
+.callout-tip      { background: #e0f2f1; border-left-color: #009688; }
 code, pre { background: #f4f4f4; border-radius: 4px; padding: .2rem .4rem; font-family: monospace; }
 pre { padding: 1rem; overflow-x: auto; }
-img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; margin: .5rem 0; }
+img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; margin: .5rem 0; display: block; }
+p { margin: .6rem 0; line-height: 1.6; }
 """
+
+_CALLOUT_HTML = {
+    "expected_result": ("callout-expected", "✓ Expected Result"),
+    "note":            ("callout-note",     "📝 Note"),
+    "caution":         ("callout-caution",  "⚠️ Caution"),
+    "congratulations": ("callout-congrats", "🎉 Congratulations"),
+    "tip":             ("callout-tip",      "💡 Tip"),
+}
+
+# Base screenshots directory — resolved relative to this file's project root
+_SCREENSHOTS_DIR = Path(__file__).parent.parent / "data" / "screenshots"
+
+
+def _resolve_screenshot_path(blk_path: str) -> Path:
+    """Resolve a block screenshot path (bare filename or screenshots/filename) to an absolute Path."""
+    p = Path(blk_path)
+    if p.is_absolute() and p.exists():
+        return p
+    # strip leading 'screenshots/' prefix if present
+    name = p.name
+    candidate = _SCREENSHOTS_DIR / name
+    if candidate.exists():
+        return candidate
+    return p
+
+
+def _render_block_html(blk, embed: bool = False) -> str:
+    import base64
+    if blk.type == "text" and blk.content:
+        # content is already Quill-generated HTML — return as-is, no extra <p> wrap
+        return blk.content
+    elif blk.type == "screenshot" and blk.path:
+        p = _resolve_screenshot_path(blk.path)
+        if embed and p.exists():
+            b64 = base64.b64encode(p.read_bytes()).decode()
+            src = f"data:image/{p.suffix.lstrip('.')};base64,{b64}"
+        elif p.exists():
+            src = str(p)
+        else:
+            src = blk.path
+        return f'<img src="{src}" alt="">'
+    elif blk.type == "callout":
+        css, label = _CALLOUT_HTML.get(blk.callout_type, ("callout-note", blk.callout_type or "Note"))
+        body = blk.content or ""
+        return f'<div class="callout {css}"><strong>{label}</strong>{("<br>" + body) if body else ""}</div>'
+    return ""
+
 
 def render_html(guide: LabGuide, embed_screenshots: bool = False) -> str:
     import base64
@@ -140,8 +420,7 @@ def render_html(guide: LabGuide, embed_screenshots: bool = False) -> str:
         parts.append(f"<h2>Prerequisites</h2><ul>{items}</ul>")
 
     if guide.introduction:
-        intro_html = guide.introduction.replace("\n\n", "</p><p>")
-        parts.append(f"<h2>Introduction</h2><p>{intro_html}</p>")
+        parts.append(f"<h2>Introduction</h2>{_md_to_html(guide.introduction)}")
 
     if guide.learning_objectives:
         items = "".join(f"<li>{o.text}</li>" for o in guide.learning_objectives)
@@ -151,37 +430,65 @@ def render_html(guide: LabGuide, embed_screenshots: bool = False) -> str:
         parts.append(f"<h2>{sec.title}</h2>")
         if sec.overview:
             parts.append(f"<p>{sec.overview}</p>")
+
+        # Section blocks (new system)
+        sec_blocks = getattr(sec, "blocks", []) or []
+        if sec_blocks:
+            for blk in sec_blocks:
+                h = _render_block_html(blk, embed=embed_screenshots)
+                if h:
+                    parts.append(h)
+        else:
+            for ss in getattr(sec, "screenshots", []):
+                img_path = _resolve_screenshot_path(ss.path)
+                if embed_screenshots and img_path.exists():
+                    import base64 as _b64
+                    src = (f"data:image/{img_path.suffix.lstrip('.')};base64,"
+                           + _b64.b64encode(img_path.read_bytes()).decode())
+                else:
+                    src = str(img_path) if img_path.exists() else ss.path
+                parts.append(f'<img src="{src}" alt="">')
+
         for step in sec.steps:
             parts.append(f'<div class="step">')
             parts.append(f"<h3>Step {step.order}: {step.title}</h3>")
-            instr_html = step.instruction.replace("\n\n", "</p><p>").replace("\n", "<br>")
-            parts.append(f"<p>{instr_html}</p>")
+            if step.instruction and step.instruction.strip():
+                instr = step.instruction.strip()
+                # Already HTML from Quill — output raw; plain text → convert markdown
+                if instr.startswith("<"):
+                    parts.append(instr)
+                else:
+                    parts.append(_md_to_html(instr))
             for cb in step.code_blocks:
                 parts.append(f"<pre><code>{cb}</code></pre>")
-            for ss in step.screenshots:
-                if embed_screenshots:
-                    try:
-                        img_path = Path(ss.path)
-                        if img_path.exists():
-                            b64 = base64.b64encode(img_path.read_bytes()).decode()
-                            ext = img_path.suffix.lstrip(".")
-                            src = f"data:image/{ext};base64,{b64}"
-                        else:
-                            src = ss.path
-                    except Exception:
-                        src = ss.path
-                else:
-                    src = ss.path
-                parts.append(f'<img src="{src}" alt="{ss.caption}">')
-            if step.expected_result:
-                parts.append(f'<div class="expected"><strong>Expected Result:</strong> {step.expected_result}</div>')
-            if step.notes:
-                parts.append(f'<div class="note"><strong>Note:</strong> {step.notes}</div>')
+
+            # Step blocks (new system)
+            step_blocks = getattr(step, "blocks", []) or []
+            if step_blocks:
+                for blk in step_blocks:
+                    h = _render_block_html(blk, embed=embed_screenshots)
+                    if h:
+                        parts.append(h)
+            else:
+                for ss in step.screenshots:
+                    img_path = _resolve_screenshot_path(ss.path)
+                    if embed_screenshots and img_path.exists():
+                        import base64 as _b64
+                        src = (f"data:image/{img_path.suffix.lstrip('.')};base64,"
+                               + _b64.b64encode(img_path.read_bytes()).decode())
+                    else:
+                        src = str(img_path) if img_path.exists() else ss.path
+                    parts.append(f'<img src="{src}" alt="">')
+            # Legacy dedicated fields
+            if getattr(step, "expected_result", ""):
+                parts.append(f'<div class="callout callout-expected"><strong>✓ Expected Result</strong><br>{step.expected_result}</div>')
+            if getattr(step, "notes", ""):
+                parts.append(f'<div class="callout callout-note"><strong>📝 Note</strong><br>{step.notes}</div>')
+
             parts.append("</div>")
 
     if guide.conclusion:
-        conc_html = guide.conclusion.replace("\n\n", "</p><p>")
-        parts.append(f"<h2>Conclusion</h2><p>{conc_html}</p>")
+        parts.append(f"<h2>Conclusion</h2>{_md_to_html(guide.conclusion)}")
 
     parts.append("</body></html>")
     return "\n".join(parts)
@@ -197,15 +504,56 @@ def export_html(guide: LabGuide, output_path: Path, embed_screenshots: bool = Fa
 # PDF export (weasyprint)
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+# PDF export (Chrome headless)
+# ─────────────────────────────────────────────────────────────
+
 def export_pdf(guide: LabGuide, output_path: Path) -> Path:
-    try:
-        from weasyprint import HTML
-    except ImportError:
-        raise RuntimeError("weasyprint is required: pip install weasyprint")
+    """Generate PDF via Chrome headless --print-to-pdf (no native lib deps)."""
+    import tempfile, os
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html_content = render_html(guide, embed_screenshots=True)
-    HTML(string=html_content).write_pdf(str(output_path))
+
+    # Write a self-contained HTML with embedded images
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as f:
+        f.write(render_html(guide, embed_screenshots=True))
+        tmp_html = f.name
+
+    chrome_candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+    ]
+    chrome = next((c for c in chrome_candidates if Path(c).exists()), None)
+    if not chrome:
+        os.unlink(tmp_html)
+        raise RuntimeError(
+            "Chrome/Chromium not found. Install Google Chrome or Chromium to export PDF."
+        )
+
+    try:
+        result = subprocess.run(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                f"--print-to-pdf={output_path}",
+                "--print-to-pdf-no-header",
+                f"file://{tmp_html}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Chrome PDF export failed: {result.stderr[:500]}")
+    finally:
+        os.unlink(tmp_html)
+
     return output_path
 
 
@@ -221,11 +569,50 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
     except ImportError:
         raise RuntimeError("python-docx is required: pip install python-docx")
 
+    _CALLOUT_LABEL = {
+        "expected_result": "✓ Expected Result",
+        "note":            "📝 Note",
+        "caution":         "⚠️ Caution",
+        "congratulations": "🎉 Congratulations",
+        "tip":             "💡 Tip",
+    }
+
+    def _add_text_block(content: str):
+        """Add a Quill HTML text block as clean paragraphs to the docx."""
+        text = _to_plain(content)
+        for chunk in text.split("\n\n"):
+            chunk = chunk.strip()
+            if chunk:
+                doc.add_paragraph(chunk)
+
+    def _add_screenshot(path_str: str):
+        img_path = _resolve_screenshot_path(path_str)
+        if img_path.exists():
+            try:
+                doc.add_picture(str(img_path), width=Inches(5.5))
+            except Exception:
+                pass
+
+    def _add_callout(callout_type: str, content: str):
+        label = _CALLOUT_LABEL.get(callout_type, callout_type or "Note")
+        p = doc.add_paragraph()
+        p.add_run(f"{label}: ").bold = True
+        p.add_run(_to_plain(content) if content else "")
+
+    def _add_blocks(blocks):
+        for blk in blocks:
+            if blk.type == "text" and blk.content:
+                _add_text_block(blk.content)
+            elif blk.type == "screenshot" and blk.path:
+                _add_screenshot(blk.path)
+            elif blk.type == "callout":
+                _add_callout(blk.callout_type or "note", blk.content or "")
+
     doc = Document()
     m = guide.metadata
 
     # Title
-    title_para = doc.add_heading(m.title, 0)
+    doc.add_heading(m.title, 0)
     meta_para = doc.add_paragraph(
         f"Version {m.version}  |  {m.author or 'Unknown'}  |  {m.date}  |  "
         f"{m.difficulty.capitalize()}  |  {m.lab_duration_minutes} min"
@@ -239,7 +626,11 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
 
     if guide.introduction:
         doc.add_heading("Introduction", 1)
-        doc.add_paragraph(guide.introduction)
+        intro_text = _to_plain(guide.introduction)
+        for chunk in intro_text.split("\n\n"):
+            chunk = chunk.strip()
+            if chunk:
+                doc.add_paragraph(chunk)
 
     if guide.learning_objectives:
         doc.add_heading("Learning Objectives", 1)
@@ -250,31 +641,46 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
         doc.add_heading(sec.title, 1)
         if sec.overview:
             doc.add_paragraph(sec.overview)
+
+        sec_blocks = getattr(sec, "blocks", []) or []
+        if sec_blocks:
+            _add_blocks(sec_blocks)
+        else:
+            for ss in getattr(sec, "screenshots", []):
+                _add_screenshot(ss.path)
+
         for step in sec.steps:
             doc.add_heading(f"Step {step.order}: {step.title}", 2)
-            doc.add_paragraph(step.instruction)
+            if step.instruction and step.instruction.strip():
+                instr_text = _to_plain(step.instruction)
+                for chunk in instr_text.split("\n\n"):
+                    chunk = chunk.strip()
+                    if chunk:
+                        doc.add_paragraph(chunk)
             for cb in step.code_blocks:
                 p = doc.add_paragraph(cb)
                 p.style = doc.styles.get("Code") or doc.styles["Normal"]
-            for ss in step.screenshots:
-                img_path = Path(ss.path)
-                if img_path.exists():
-                    try:
-                        doc.add_picture(str(img_path), width=Inches(5.5))
-                    except Exception:
-                        pass
-            if step.expected_result:
-                p = doc.add_paragraph()
-                p.add_run("Expected Result: ").bold = True
-                p.add_run(step.expected_result)
-            if step.notes:
-                p = doc.add_paragraph()
-                p.add_run("Note: ").bold = True
-                p.add_run(step.notes)
+
+            step_blocks = getattr(step, "blocks", []) or []
+            if step_blocks:
+                _add_blocks(step_blocks)
+            else:
+                for ss in step.screenshots:
+                    _add_screenshot(ss.path)
+
+            # Legacy dedicated fields
+            if getattr(step, "expected_result", ""):
+                _add_callout("expected_result", step.expected_result)
+            if getattr(step, "notes", ""):
+                _add_callout("note", step.notes)
 
     if guide.conclusion:
         doc.add_heading("Conclusion", 1)
-        doc.add_paragraph(guide.conclusion)
+        conc_text = _to_plain(guide.conclusion)
+        for chunk in conc_text.split("\n\n"):
+            chunk = chunk.strip()
+            if chunk:
+                doc.add_paragraph(chunk)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_path))
@@ -295,14 +701,13 @@ copyright: Copyright &copy; 2024 Cisco
 theme:
   name: material
   features:
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.indexes
     - navigation.instant
     - navigation.top
+    - navigation.footer
+    - navigation.expand
     - search.suggest
     - content.code.copy
-    - toc.integrate
   custom_dir: docs/overrides
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -356,7 +761,6 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
 nav:
   - Home: index.md
-  - Lab:
 {nav_sections}
 """
 
@@ -439,7 +843,7 @@ _HOME_HTML = """\
                         document.write(descr)
                     </script>
                 </p>
-                <a href="{{ nav.items[1].children[0].url }}" class="md-button md-button--primary">
+                <a href="{{ nav.items[1].url }}" class="md-button md-button--primary">
                     Get started
                 </a>
             </div>
@@ -483,6 +887,59 @@ jobs:
 # Reference assets bundled from ciscodocs/ltrxar-3783-tech-elevate-fy26
 _REFERENCE_ASSETS_REPO = "https://github.com/ciscodocs/ltrxar-3783-tech-elevate-fy26.git"
 
+_CALLOUT_ADMONITION = {
+    "expected_result": ('success', "Expected Result"),
+    "note":            ('info',    "Note"),
+    "caution":         ('warning', "Caution"),
+    "congratulations": ('abstract',"Congratulations"),
+    "tip":             ('tip',     "Tip"),
+}
+
+
+def _render_block_mkdocs(blk) -> list[str]:
+    """Return MkDocs markdown lines for a single ContentBlock."""
+    lines: list[str] = []
+    if blk.type == "text" and blk.content:
+        lines += [_html_to_md(blk.content), ""]
+    elif blk.type == "screenshot" and blk.path:
+        fname = Path(blk.path).name
+        lines += [f"![](../screenshots/{fname})", ""]
+    elif blk.type == "callout":
+        kind, title = _CALLOUT_ADMONITION.get(blk.callout_type, ("note", blk.callout_type))
+        body = _html_to_md(blk.content or "")
+        lines += [f'!!! {kind} "{title}"', f'    {body}', ""]
+    return lines
+
+
+def _render_index_md(guide: LabGuide) -> str:
+    """Render the home page index.md — intro only, with hero template frontmatter."""
+    m = guide.metadata
+    lines = [
+        "---",
+        f'description: "{m.title}"',
+        "template: home.html",
+        "---",
+        "",
+        f"# {m.title}",
+        "",
+    ]
+    if m.subtitle:
+        lines += [m.subtitle, ""]
+    if m.author or m.version:
+        bits = []
+        if m.author:
+            bits.append(f"**Author:** {m.author}")
+        if m.version:
+            bits.append(f"**Version:** {m.version}")
+        lines += ["  |  ".join(bits), ""]
+    if guide.learning_objectives:
+        lines += ["## Learning Objectives", ""]
+        for obj in guide.learning_objectives:
+            lines += [f"- {obj.text}"]
+        lines += [""]
+    return "\n".join(lines)
+
+
 def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
     """
     Generate a full MkDocs docs/ directory structure.
@@ -496,21 +953,45 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
     docs_dir = output_dir / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Clean stale section dirs from previous exports ──────────
+    import shutil as _shutil_clean
+    import re as _re_slug
     def slugify(text: str) -> str:
-        import re
-        return re.sub(r"[^\w]+", "-", text.lower()).strip("-")
+        return _re_slug.sub(r"[^\w]+", "-", text.lower()).strip("-")
 
-    # index.md
-    intro_md = render_markdown(guide, include_screenshots=False)
-    (docs_dir / "index.md").write_text(intro_md)
+    # Compute current slugs so we only keep them + reserved dirs
+    current_slugs = {slugify(sec.title) for sec in guide.sections}
+    reserved_dirs = {"screenshots", "stylesheets", "overrides", "template_assets", "introduction", "conclusion"}
+    for child in list(docs_dir.iterdir()):
+        if child.is_dir() and child.name not in reserved_dirs and child.name not in current_slugs:
+            _shutil_clean.rmtree(child)
+
+    section_slugs = [(slugify(sec.title), sec.title) for sec in guide.sections]
+
+    # index.md — hero landing page (no introduction content here)
+    (docs_dir / "index.md").write_text(_render_index_md(guide))
 
     # Copy screenshots into docs/screenshots/ so MkDocs can serve them
     _copy_screenshots(guide, docs_dir)
 
+    # ── Introduction page ────────────────────────────────────────
+    nav_intro = ""
+    if guide.introduction:
+        intro_dir = docs_dir / "introduction"
+        intro_dir.mkdir(exist_ok=True)
+        intro_lines = ["# Introduction", "", guide.introduction, ""]
+        if guide.learning_objectives:
+            intro_lines += ["## Learning Objectives", ""]
+            for obj in guide.learning_objectives:
+                intro_lines += [f"- {obj.text}"]
+            intro_lines += [""]
+        (intro_dir / "index.md").write_text("\n".join(intro_lines))
+        nav_intro = "  - Introduction: introduction/index.md\n"
+
     # Per-section pages
     nav_sections = ""
-    for sec in guide.sections:
-        slug = slugify(sec.title)
+    for idx, sec in enumerate(guide.sections):
+        slug, _ = section_slugs[idx]
         sec_dir = docs_dir / slug
         sec_dir.mkdir(exist_ok=True)
 
@@ -523,42 +1004,56 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
                 sec.overview
             )
             lines += [fixed_overview, ""]
-        # Content blocks (text + screenshots interleaved, in order)
-        for blk in getattr(sec, "blocks", []):
-            if blk.type == "text" and blk.content:
-                lines += [blk.content, ""]
-            elif blk.type == "screenshot" and blk.path:
-                fname = Path(blk.path).name
-                cap = blk.caption or fname
-                lines += [f"![{cap}](../screenshots/{fname})", ""]
-        # Legacy section-level screenshots (shown after blocks if blocks absent)
-        if not getattr(sec, "blocks", []):
+
+        # Section blocks (new system)
+        sec_blocks = getattr(sec, "blocks", []) or []
+        if sec_blocks:
+            for blk in sec_blocks:
+                lines += _render_block_mkdocs(blk)
+        else:
             for ss in getattr(sec, "screenshots", []):
                 fname = Path(ss.path).name
-                lines += [f"![{ss.caption}](../screenshots/{fname})", ""]
+                lines += [f"![](../screenshots/{fname})", ""]
+
         for step in sec.steps:
             lines += [f"## Step {step.order}: {step.title}", ""]
-            lines += [step.instruction, ""]
+            lines += [_html_to_md(step.instruction), ""]
             for cb in step.code_blocks:
                 lines += ["```", cb, "```", ""]
-            for ss in step.screenshots:
-                # path stored as "screenshots/filename" — resolve relative to section subdir
-                fname = Path(ss.path).name
-                lines += [f"![{ss.caption}](../screenshots/{fname})", ""]
-            if step.expected_result:
-                lines += [f"!!! success \"Expected Result\"", f"    {step.expected_result}", ""]
-            if step.notes:
-                lines += [f"!!! note", f"    {step.notes}", ""]
+
+            # Step blocks (new system)
+            step_blocks = getattr(step, "blocks", []) or []
+            if step_blocks:
+                for blk in step_blocks:
+                    lines += _render_block_mkdocs(blk)
+            else:
+                for ss in step.screenshots:
+                    fname = Path(ss.path).name
+                    lines += [f"![](../screenshots/{fname})", ""]
+            # Legacy dedicated fields
+            if getattr(step, "expected_result", ""):
+                lines += ['!!! success "Expected Result"', f"    {step.expected_result}", ""]
+            if getattr(step, "notes", ""):
+                lines += ['!!! note "Note"', f"    {step.notes}", ""]
 
         (sec_dir / "index.md").write_text("\n".join(lines))
         # Quote the label if it contains a colon (would break YAML otherwise)
         label = f'"{sec.title}"' if ":" in sec.title else sec.title
-        nav_sections += f"    - {label}: {slug}/index.md\n"
+        nav_sections += f"  - {label}: {slug}/index.md\n"
+
+    # ── Conclusion page ──────────────────────────────────────────
+    nav_conclusion = ""
+    if guide.conclusion:
+        conc_dir = docs_dir / "conclusion"
+        conc_dir.mkdir(exist_ok=True)
+        conc_lines = ["# Conclusion", "", guide.conclusion, ""]
+        (conc_dir / "index.md").write_text("\n".join(conc_lines))
+        nav_conclusion = "  - Conclusion: conclusion/index.md\n"
 
     # mkdocs.yml
     yml = _MKDOCS_YML_TEMPLATE.format(
         title=guide.metadata.title,
-        nav_sections=nav_sections,
+        nav_sections=nav_intro + nav_sections + nav_conclusion,
     )
     (output_dir / "mkdocs.yml").write_text(yml)
 
@@ -578,23 +1073,30 @@ def _copy_screenshots(guide: LabGuide, docs_dir: Path) -> None:
     import shutil as _shutil
     ss_dst = docs_dir / "screenshots"
     ss_dst.mkdir(exist_ok=True)
-    data_dir = Path(__file__).parent.parent / "data"
+    ss_src = Path(__file__).parent.parent / "data" / "screenshots"
     for sec in guide.sections:
         # Block-level screenshots
         for blk in getattr(sec, "blocks", []):
             if blk.type == "screenshot" and blk.path:
-                src = data_dir / blk.path
+                # section blocks store path as "screenshots/filename"
+                src = ss_src / Path(blk.path).name
                 if src.exists():
                     _shutil.copy2(src, ss_dst / src.name)
         # Legacy section-level screenshots
         for ss in getattr(sec, "screenshots", []):
-            src = data_dir / ss.path
+            src = ss_src / Path(ss.path).name
             if src.exists():
                 _shutil.copy2(src, ss_dst / src.name)
-        # Step-level screenshots
+        # Step-level screenshots and blocks
         for step in sec.steps:
+            for blk in getattr(step, "blocks", []):
+                if blk.type == "screenshot" and blk.path:
+                    # step blocks store path as bare filename
+                    src = ss_src / Path(blk.path).name
+                    if src.exists():
+                        _shutil.copy2(src, ss_dst / src.name)
             for ss in step.screenshots:
-                src = data_dir / ss.path
+                src = ss_src / Path(ss.path).name
                 if src.exists():
                     _shutil.copy2(src, ss_dst / src.name)
 

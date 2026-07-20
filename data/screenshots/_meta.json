@@ -1,3 +1,9 @@
 {
-  "overview_cisco_cloud_control.jpg": "Cisco Cloud Control \u2014 Platform Overview (Elevator Pitch)"
+  "overview_cisco_cloud_control.jpg": "Cisco Cloud Control \u2014 Platform Overview (Elevator Pitch)",
+  "capture-dd716e09.png": {
+    "caption": "Cisco Cloud Control Canvas home page showing Quick Start templates and recent boards"
+  },
+  "capture-073e6760.png": {
+    "caption": "Cisco Cloud Control Canvas displaying Meraki organization health summary with critical 12% score"
+  }
 }

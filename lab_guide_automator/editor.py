@@ -23,8 +23,7 @@ async def rewrite_step(
     feedback: str,
 ) -> LabStep:
     """
-    Rewrite a single step's instruction and expected_result
-    based on user feedback.
+    Rewrite a single step's instruction based on user feedback.
     """
     step = guide.get_step(step_id)
     if not step:
@@ -33,12 +32,11 @@ async def rewrite_step(
     messages = [
         {"role": "system", "content": (
             "You are a technical writer improving a lab guide step. "
-            "Return only a JSON object with keys: instruction, expected_result. "
+            "Return only a JSON object with key: instruction. "
             "Keep the same step title. Be specific, use imperative tense."
         )},
         {"role": "user", "content": (
             f"Current instruction:\n{step.instruction}\n\n"
-            f"Current expected result:\n{step.expected_result}\n\n"
             f"Feedback / change request:\n{feedback}"
         )},
     ]
@@ -46,7 +44,6 @@ async def rewrite_step(
     raw = raw.strip().lstrip("```json").rstrip("```").strip()
     data = json.loads(raw)
     step.instruction = data.get("instruction", step.instruction)
-    step.expected_result = data.get("expected_result", step.expected_result)
     guide.touch()
     return step
 
@@ -167,7 +164,7 @@ async def add_step(
     messages = [
         {"role": "system", "content": (
             "You are a technical writer. Draft a lab step. "
-            "Return JSON: {\"instruction\": \"...\", \"expected_result\": \"...\"}"
+            "Return JSON: {\"instruction\": \"...\"}"
         )},
         {"role": "user", "content": (
             f"Step title: {title}\n"
@@ -183,7 +180,7 @@ async def add_step(
         order=len(section.steps) + 1,
         title=title,
         instruction=data.get("instruction", description),
-        expected_result=data.get("expected_result", ""),
+        expected_result="",
     )
 
     if insert_after_step_id:
