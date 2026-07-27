@@ -75,9 +75,10 @@ def _save_guide(guide: LabGuide) -> None:
 
 
 def _renumber_steps(guide: LabGuide) -> None:
-    """Assign globally sequential step.order values across all sections."""
+    """Assign globally sequential step.order values across all sections, and section order."""
     n = 1
-    for sec in guide.sections:
+    for i, sec in enumerate(guide.sections):
+        sec.order = i + 1
         for step in sec.steps:
             step.order = n
             n += 1
@@ -559,6 +560,42 @@ def api_delete_objective(guide_id, obj_id):
     try:
         g = _load_guide(guide_id)
         g.learning_objectives = [o for o in g.learning_objectives if o.id != obj_id]
+        g.touch()
+        _save_guide(g)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/objective/<obj_id>", methods=["PATCH"])
+def api_update_objective(guide_id, obj_id):
+    try:
+        g = _load_guide(guide_id)
+        obj = next((o for o in g.learning_objectives if o.id == obj_id), None)
+        if not obj:
+            return jsonify({"error": "Not found"}), 404
+        data = request.json or {}
+        if "text" in data:
+            obj.text = data["text"]
+        if "bloom_level" in data:
+            obj.bloom_level = data["bloom_level"]
+        g.touch()
+        _save_guide(g)
+        return jsonify({"id": obj.id, "text": obj.text, "bloom_level": obj.bloom_level})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/guides/<guide_id>/objectives/reorder", methods=["POST"])
+def api_reorder_objectives(guide_id):
+    try:
+        g = _load_guide(guide_id)
+        order = (request.json or {}).get("order", [])
+        id_to_obj = {o.id: o for o in g.learning_objectives}
+        reordered = [id_to_obj[oid] for oid in order if oid in id_to_obj]
+        seen = set(order)
+        reordered += [o for o in g.learning_objectives if o.id not in seen]
+        g.learning_objectives = reordered
         g.touch()
         _save_guide(g)
         return jsonify({"ok": True})
@@ -1116,7 +1153,7 @@ def api_session_screenshot_thumb(sid, filename):
         buf.seek(0)
         from flask import Response
         return Response(buf.read(), mimetype="image/jpeg",
-                        headers={"Cache-Control": "public, max-age=86400"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     except ImportError:
         # Pillow not installed — fall back to serving the original
         return send_from_directory(str(rec_dir), filename)
@@ -2202,7 +2239,11 @@ def api_section_block_add(guide_id, section_id):
         path=data.get("path", ""),
         caption=data.get("caption", ""),
     )
-    if after_id:
+    if data.get("callout_type"):
+        block.callout_type = data["callout_type"]
+    if after_id == "__first__":
+        sec.blocks.insert(0, block)
+    elif after_id:
         idx = next((i for i, b in enumerate(sec.blocks) if b.id == after_id), None)
         if idx is not None:
             sec.blocks.insert(idx + 1, block)
@@ -2307,8 +2348,12 @@ def api_step_block_add(guide_id, step_id):
     data = request.json or {}
     block = ContentBlock(type=data.get("type", "text"), content=data.get("content", ""),
                          path=data.get("path", ""), caption=data.get("caption", ""))
-    pos = data.get("after")   # insert after block id, or None = append
-    if pos:
+    if data.get("callout_type"):
+        block.callout_type = data["callout_type"]
+    pos = data.get("after")   # insert after block id, or None = append, or __first__ = prepend
+    if pos == "__first__":
+        step.blocks.insert(0, block)
+    elif pos:
         idx = next((i for i, b in enumerate(step.blocks) if b.id == pos), -1)
         step.blocks.insert(idx + 1, block)
     else:
@@ -2733,11 +2778,12 @@ def _preview_html(g) -> str:
         )
 
     CALLOUT_STYLES = {
-        "expected_result": ("prev-callout-expected", "✓ Expected Result"),
-        "note":            ("prev-callout-note",     "📝 Note"),
-        "caution":         ("prev-callout-caution",  "⚠ Caution"),
-        "congratulations": ("prev-callout-congrats", "🎉 Congratulations"),
-        "tip":             ("prev-callout-tip",      "💡 Tip"),
+        "expected_result": ("prev-callout-expected",  "✓ Expected Result"),
+        "note":            ("prev-callout-note",       "📝 Note"),
+        "caution":         ("prev-callout-caution",    "⚠ Caution"),
+        "congratulations": ("prev-callout-congrats",   "🎉 Congratulations"),
+        "tip":             ("prev-callout-tip",        "💡 Tip"),
+        "team_challenge":  ("prev-callout-challenge",  "🏆 Team Challenge"),
     }
 
     def _callout(blk) -> str:
@@ -2994,6 +3040,7 @@ def _render_html() -> str:
   .callout-caution   { background: #2a1800; border-color: #e3700a; color: #f0a04a; }
   .callout-congrats  { background: #1e0d2e; border-color: #a855f7; color: #d8b4fe; }
   .callout-tip       { background: #002a28; border-color: #06b6d4; color: #67e8f9; }
+  .callout-challenge { background: #2a1f00; border-color: #f59e0b; color: #fcd34d; }
 
   /* ── Step screenshot panel ── */
   .step-screenshots { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .6rem; }
@@ -3012,6 +3059,8 @@ def _render_html() -> str:
   .block-item { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); margin-bottom: .4rem; }
   .block-item.block-text { }
   .block-item.block-screenshot { display: flex; align-items: flex-start; gap: .75rem; padding: .6rem; }
+  .block-item.block-divider { border: 1px dashed var(--border); background: transparent; padding: .4rem .75rem; display: flex; align-items: center; gap: .5rem; }
+  .block-divider-bar { flex: 1; height: 2px; background: linear-gradient(90deg, transparent, var(--border) 20%, var(--accent) 50%, var(--border) 80%, transparent); border-radius: 2px; }
   .block-text-body { padding: .5rem .75rem; font-size: .83rem; color: var(--text2); white-space: normal; overflow-wrap: break-word; word-break: break-word; line-height: 1.6; cursor: pointer; min-height: 2rem; }
   .block-text-body p { margin: 0 0 .5em; }
   .block-text-body p:last-child { margin-bottom: 0; }
@@ -3044,7 +3093,11 @@ def _render_html() -> str:
 
   /* ── Objectives ── */
   .obj-list { display: flex; flex-direction: column; gap: .4rem; }
-  .obj-item { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .75rem; background: var(--surface2); border-radius: 6px; border: 1px solid var(--border); }
+  .obj-item { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .75rem; background: var(--surface2); border-radius: 6px; border: 1px solid var(--border); cursor: default; }
+  .obj-item.obj-dragging { opacity: .4; border-style: dashed; }
+  .obj-item.obj-dragover { border-color: var(--accent); background: #0d2137; }
+  .obj-drag-handle { cursor: grab; color: var(--text2); font-size: 14px; padding: 2px 2px; flex-shrink: 0; line-height: 1; user-select: none; margin-top: 1px; }
+  .obj-drag-handle:active { cursor: grabbing; }
   .bloom-badge { font-size: .68rem; padding: .1rem .4rem; border-radius: 8px; flex-shrink: 0; margin-top: 1px; font-weight: 600; text-transform: uppercase; }
   .bloom-apply { background: #0d3b2b; color: #3fb950; border: 1px solid #3fb950; }
   .bloom-understand { background: #0d2a3b; color: var(--accent); border: 1px solid var(--accent); }
@@ -3105,11 +3158,12 @@ def _render_html() -> str:
   .preview-pane .prev-step h3 { display: flex; align-items: center; gap: .6rem; margin-top: .3rem; }
   .preview-pane .prev-step-num { background: #00bceb; color: #fff; border-radius: 50%; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: .8rem; font-weight: 700; flex-shrink: 0; }
   .preview-pane .prev-callout { padding: .5rem 1rem; border-radius: 0 4px 4px 0; margin-top: .6rem; font-size: .9rem; border-left-width: 4px; border-left-style: solid; }
-  .preview-pane .prev-callout-expected { background: #f0faf0; border-left-color: #3fb950; }
-  .preview-pane .prev-callout-note     { background: #e8f0fe; border-left-color: #388bfd; }
-  .preview-pane .prev-callout-caution  { background: #fff3e0; border-left-color: #e3700a; }
-  .preview-pane .prev-callout-congrats { background: #f3e5f5; border-left-color: #a855f7; }
-  .preview-pane .prev-callout-tip      { background: #e0f7fa; border-left-color: #06b6d4; }
+  .preview-pane .prev-callout-expected  { background: #f0faf0; border-left-color: #3fb950; }
+  .preview-pane .prev-callout-note      { background: #e8f0fe; border-left-color: #388bfd; }
+  .preview-pane .prev-callout-caution   { background: #fff3e0; border-left-color: #e3700a; }
+  .preview-pane .prev-callout-congrats  { background: #f3e5f5; border-left-color: #a855f7; }
+  .preview-pane .prev-callout-tip       { background: #e0f7fa; border-left-color: #06b6d4; }
+  .preview-pane .prev-callout-challenge { background: #fffbeb; border-left-color: #f59e0b; }
   .preview-pane .prev-figure { margin: 1rem 0; text-align: center; }
   .preview-pane .prev-figure img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.08); cursor: zoom-in; }
   .preview-pane .prev-caption { font-size: .8rem; color: #666; margin-top: .35rem; font-style: italic; }
@@ -3204,6 +3258,30 @@ def _render_html() -> str:
     border-radius: 4px; display: flex; align-items: center; justify-content: center;
   }
   .emoji-picker-popup button:hover { background: var(--border); }
+  /* Divider + Table toolbar buttons */
+  .ql-divider-btn, .ql-table-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text2); font-size: 13px; padding: 3px 6px;
+    line-height: 1; border-radius: 3px; white-space: nowrap;
+  }
+  .ql-divider-btn:hover, .ql-table-btn:hover { color: var(--accent); background: var(--border); }
+  /* Table picker popup */
+  .table-picker-popup {
+    position: absolute; z-index: 9999;
+    background: #1e2530; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  }
+  .table-picker-popup .tp-label {
+    font-size: 11px; color: var(--text2); text-align: center; margin-bottom: 6px;
+  }
+  .table-picker-grid { display: grid; gap: 3px; }
+  .table-picker-grid span {
+    width: 18px; height: 18px; border: 1px solid var(--border);
+    border-radius: 2px; cursor: pointer; display: block;
+    background: var(--surface2);
+  }
+  .table-picker-grid span.tp-hover { background: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -3895,6 +3973,7 @@ def _render_html() -> str:
       <button class="btn callout-caution"  style="padding:.7rem;text-align:left;border:1px solid #e3700a" onclick="_calloutPick('caution')"><strong>⚠ Caution</strong><br><span style="font-size:.75rem;opacity:.8">Orange — be careful</span></button>
       <button class="btn callout-congrats" style="padding:.7rem;text-align:left;border:1px solid #a855f7" onclick="_calloutPick('congratulations')"><strong>🎉 Congratulations</strong><br><span style="font-size:.75rem;opacity:.8">Purple — milestone reached</span></button>
       <button class="btn callout-tip"      style="padding:.7rem;text-align:left;border:1px solid #06b6d4" onclick="_calloutPick('tip')"><strong>💡 Tip</strong><br><span style="font-size:.75rem;opacity:.8">Teal — helpful hint</span></button>
+      <button class="btn callout-challenge" style="padding:.7rem;text-align:left;border:1px solid #f59e0b" onclick="_calloutPick('team_challenge')"><strong>🏆 Team Challenge</strong><br><span style="font-size:.75rem;opacity:.8">Gold — group activity</span></button>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-callout')">Cancel</button>
@@ -4001,6 +4080,11 @@ async function loadGuide(id) {
 }
 
 function renderGuide() {
+  // Remember which sections are currently expanded so we can restore after re-render
+  const expandedSections = new Set(
+    [...document.querySelectorAll('.section-block:not(.section-collapsed)')]
+      .map(el => el.id.replace('secblock-', ''))
+  );
   const g = currentGuide;
   const m = g.metadata;
   document.getElementById('ed-title').textContent = m.title;
@@ -4013,6 +4097,19 @@ function renderGuide() {
   document.getElementById('ed-intro').textContent = g.introduction || '(No introduction yet)';
   document.getElementById('ed-conclusion').textContent = g.conclusion || '(No conclusion yet)';
   renderSections();
+  // Restore expanded/collapsed state — if we had expanded sections before, restore them;
+  // if this is a fresh load (nothing was expanded yet), expand the first section by default
+  const allBlocks = document.querySelectorAll('.section-block');
+  if (expandedSections.size > 0) {
+    allBlocks.forEach(el => {
+      const sid = el.id.replace('secblock-', '');
+      if (!expandedSections.has(sid)) {
+        el.classList.add('section-collapsed');
+        const chevron = el.querySelector('.section-header span');
+        if (chevron && chevron.textContent === '▼') chevron.textContent = '▶';
+      }
+    });
+  }
   renderObjectives();
   _applyExpectedVisibility();
 }
@@ -4025,14 +4122,8 @@ function renderSections() {
     return;
   }
   container.innerHTML = sections.map((sec, secIdx) => `
-    <div class="section-block" id="secblock-${sec.id}"
-         draggable="true"
-         ondragstart="secDragStart(event,'${sec.id}')"
-         ondragover="secDragOver(event,this)"
-         ondragleave="secDragLeave(this)"
-         ondrop="secDrop(event,'${sec.id}')">
+    <div class="section-block" id="secblock-${sec.id}">
       <div class="section-header" onclick="toggleSection(this)">
-        <span class="sec-drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">⠿</span>
         <span class="section-num">${secIdx + 1}</span>
         <span class="section-title" id="sec-title-${sec.id}">${sec.title}</span>
         <input class="sec-title-input" id="sec-title-input-${sec.id}"
@@ -4040,6 +4131,8 @@ function renderSections() {
                onblur="secTitleSave('${sec.id}')"
                onkeydown="if(event.key==='Enter'){event.preventDefault();secTitleSave('${sec.id}');}if(event.key==='Escape'){secTitleCancel('${sec.id}');}">
         <span class="section-count">${sec.steps.length} step${sec.steps.length !== 1 ? 's' : ''}</span>
+        <button class="btn btn-secondary btn-sm" title="Move up" onclick="event.stopPropagation();moveSectionUp('${sec.id}')" ${secIdx === 0 ? 'disabled' : ''} style="padding:1px 7px;font-size:13px">▲</button>
+        <button class="btn btn-secondary btn-sm" title="Move down" onclick="event.stopPropagation();moveSectionDown('${sec.id}')" ${secIdx === sections.length - 1 ? 'disabled' : ''} style="padding:1px 7px;font-size:13px">▼</button>
         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();secTitleEdit('${sec.id}')">✎ Rename</button>
         <button class="btn btn-ai btn-sm" onclick="event.stopPropagation();rewriteSection('${sec.id}')">✦ AI</button>
         <button class="btn btn-ai btn-sm" onclick="event.stopPropagation();normalizeSection('${sec.id}')" title="Normalize all steps in this section to consistent tone and formatting">✦ Normalize</button>
@@ -4061,7 +4154,7 @@ function renderSections() {
 
 
       <div class="block-list" id="block-list-${sec.id}">
-        ${renderBlockDivider(sec.id, null)}
+        ${renderBlockDivider(sec.id, '__first__')}
         ${(sec.blocks || []).map(b => renderBlock(sec.id, b)).join('')}
       </div>
 
@@ -4075,30 +4168,46 @@ function renderSections() {
 }
 
 function renderBlock(secId, block) {
+  const moveBtn = `<span style="display:flex;flex-direction:column;gap:1px;flex-shrink:0;margin-right:2px">
+    <button class="btn btn-secondary btn-sm" style="padding:0 5px;font-size:11px;line-height:1.4" title="Move up" onclick="moveBlockUp('${secId}','${block.id}')">▲</button>
+    <button class="btn btn-secondary btn-sm" style="padding:0 5px;font-size:11px;line-height:1.4" title="Move down" onclick="moveBlockDown('${secId}','${block.id}')">▼</button>
+  </span>`;
+  if (block.type === 'divider') {
+    return `<div class="block-item block-divider" id="block-${block.id}">
+      ${moveBtn}
+      <div class="block-divider-bar"></div>
+      <span style="font-size:.7rem;color:var(--text2);white-space:nowrap">── Divider ──</span>
+      <div class="block-divider-bar"></div>
+      <button class="btn btn-danger btn-sm" style="font-size:.7rem;padding:1px 6px;flex-shrink:0" onclick="blockDelete('${secId}','${block.id}')">✕</button>
+    </div>${renderBlockDivider(secId, block.id)}`;
+  }
   if (block.type === 'callout') {
-    return renderCalloutBlock(
-      block,
-      `blockDelete('${secId}','${block.id}')`,
-      `blockCalloutEdit('${secId}','${block.id}')`
-    ) + renderBlockDivider(secId, block.id);
+    return `<div style="display:flex;align-items:flex-start;gap:4px" id="block-wrap-${block.id}">${moveBtn}` +
+      `<div style="flex:1">` +
+      renderCalloutBlock(
+        block,
+        `blockDelete('${secId}','${block.id}')`,
+        `blockCalloutEdit('${secId}','${block.id}')`
+      ) +
+      `</div></div>` +
+      renderBlockDivider(secId, block.id);
   }
   if (block.type === 'text') {
     return `
-      <div class="block-item block-text" id="block-${block.id}" draggable="true"
-           ondragstart="blockDragStart(event,'${secId}','${block.id}')"
-           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
-           ondrop="blockDrop(event,'${secId}','${block.id}')">
-        <div class="block-text-body" onclick="blockTextEdit('${block.id}',true)" title="Click to edit">
-          <span class="block-drag-handle" title="Drag to reorder">⠿</span>
-          ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
-        </div>
-        <div class="block-text-edit" id="block-edit-${block.id}">
-          <div class="quill-host" id="block-qhost-${block.id}"></div>
-          ${_blockAiToolbar(block.id, '')}
-          <div class="gap-row" style="margin-top:.35rem">
-            <button class="btn btn-primary btn-sm" onclick="blockTextSave('${secId}','${block.id}')">Save</button>
-            <button class="btn btn-secondary btn-sm" onclick="blockTextEdit('${block.id}',false)">Cancel</button>
-            <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="blockDelete('${secId}','${block.id}')">Delete block</button>
+      <div class="block-item block-text" id="block-${block.id}" style="display:flex;align-items:flex-start;gap:4px">
+        ${moveBtn}
+        <div style="flex:1">
+          <div class="block-text-body" onclick="blockTextEdit('${block.id}',true)" title="Click to edit">
+            ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
+          </div>
+          <div class="block-text-edit" id="block-edit-${block.id}">
+            <div class="quill-host" id="block-qhost-${block.id}"></div>
+            ${_blockAiToolbar(block.id, '')}
+            <div class="gap-row" style="margin-top:.35rem">
+              <button class="btn btn-primary btn-sm" onclick="blockTextSave('${secId}','${block.id}')">Save</button>
+              <button class="btn btn-secondary btn-sm" onclick="blockTextEdit('${block.id}',false)">Cancel</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="blockDelete('${secId}','${block.id}')">Delete block</button>
+            </div>
           </div>
         </div>
       </div>
@@ -4110,25 +4219,24 @@ function renderBlock(secId, block) {
       ? `<div class="block-ss-thumb" onclick="ssPreview('/api/screenshots/file/${fname}','${cap}')"><img src="/api/screenshots/file/${fname}" alt="${cap}"><div class="block-ss-caption">${cap || fname}</div></div>`
       : `<div class="block-ss-thumb" style="display:flex;align-items:center;justify-content:center;height:100px;color:var(--text2);font-size:.8rem;cursor:default">No image yet</div>`;
     return `
-      <div class="block-item block-screenshot" id="block-${block.id}" draggable="true"
-           ondragstart="blockDragStart(event,'${secId}','${block.id}')"
-           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
-           ondrop="blockDrop(event,'${secId}','${block.id}')">
-        <span class="block-drag-handle" title="Drag to reorder" style="margin-top:.5rem">⠿</span>
-        ${imgHtml}
-        <div class="block-ss-meta">
-          <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
-          <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
-            onchange="blockSsCaption('${secId}','${block.id}',this.value)">
-           <div class="block-actions">
-             <button class="btn btn-secondary btn-sm" onclick="blockSsPick('${secId}','${block.id}')">📂 Pick from Repository</button>
-             <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-               ⬆ Upload<input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="blockSsUpload(this,'${secId}','${block.id}')">
-             </label>
-             <button class="btn btn-secondary btn-sm" onclick="blockCapture('${secId}','${block.id}')">📸 Capture</button>
-             <button class="btn btn-ai btn-sm" onclick="blockSsAiCaption('${secId}','${block.id}','${fname}')">✦ AI Caption</button>
-             <button class="btn btn-danger btn-sm" onclick="blockDelete('${secId}','${block.id}')">✕</button>
-           </div>
+      <div class="block-item block-screenshot" id="block-${block.id}" style="display:flex;align-items:flex-start;gap:4px">
+        ${moveBtn}
+        <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
+          ${imgHtml}
+          <div class="block-ss-meta">
+            <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
+            <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
+              onchange="blockSsCaption('${secId}','${block.id}',this.value)">
+             <div class="block-actions">
+               <button class="btn btn-secondary btn-sm" onclick="blockSsPick('${secId}','${block.id}')">📂 Pick from Repository</button>
+               <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                 ⬆ Upload<input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="blockSsUpload(this,'${secId}','${block.id}')">
+               </label>
+               <button class="btn btn-secondary btn-sm" onclick="blockCapture('${secId}','${block.id}')">📸 Capture</button>
+               <button class="btn btn-ai btn-sm" onclick="blockSsAiCaption('${secId}','${block.id}','${fname}')">✦ AI Caption</button>
+               <button class="btn btn-danger btn-sm" onclick="blockDelete('${secId}','${block.id}')">✕</button>
+             </div>
+          </div>
         </div>
       </div>
       ${renderBlockDivider(secId, block.id)}`;
@@ -4142,6 +4250,7 @@ function renderBlockDivider(secId, afterBlockId) {
     <button class="btn btn-secondary block-add-btn" onclick="blockAddText('${secId}',${aid})">+ Text</button>
     <button class="btn btn-secondary block-add-btn" onclick="blockAddScreenshot('${secId}',${aid})">🖼 Screenshot</button>
     <button class="btn btn-secondary block-add-btn" onclick="openCalloutPicker('section','${secId}',${aid})">🟩 Callout</button>
+    <button class="btn btn-secondary block-add-btn" onclick="blockAddDivider('${secId}',${aid})">── Divider</button>
     <div class="block-divider-line"></div>
   </div>`;
 }
@@ -4242,35 +4351,52 @@ function renderStepBlockDivider(stepId, afterBlockId) {
     <button class="btn btn-secondary block-add-btn" onclick="stepBlockAddText('${stepId}',${aid})">+ Text</button>
     <button class="btn btn-secondary block-add-btn" onclick="stepBlockAddScreenshot('${stepId}',${aid})">🖼 Screenshot</button>
     <button class="btn btn-secondary block-add-btn" onclick="openCalloutPicker('step','${stepId}',${aid})">🟩 Callout</button>
+    <button class="btn btn-secondary block-add-btn" onclick="stepBlockAddDivider('${stepId}',${aid})">── Divider</button>
     <div class="block-divider-line"></div>
   </div>`;
 }
 
 function renderStepBlock(stepId, block) {
+  const moveBtn = `<span style="display:flex;flex-direction:column;gap:1px;flex-shrink:0;margin-right:2px">
+    <button class="btn btn-secondary btn-sm" style="padding:0 5px;font-size:11px;line-height:1.4" title="Move up" onclick="moveStepBlockUp('${stepId}','${block.id}')">▲</button>
+    <button class="btn btn-secondary btn-sm" style="padding:0 5px;font-size:11px;line-height:1.4" title="Move down" onclick="moveStepBlockDown('${stepId}','${block.id}')">▼</button>
+  </span>`;
+  if (block.type === 'divider') {
+    return `<div class="block-item block-divider" id="step-block-${block.id}">
+      ${moveBtn}
+      <div class="block-divider-bar"></div>
+      <span style="font-size:.7rem;color:var(--text2);white-space:nowrap">── Divider ──</span>
+      <div class="block-divider-bar"></div>
+      <button class="btn btn-danger btn-sm" style="font-size:.7rem;padding:1px 6px;flex-shrink:0" onclick="stepBlockDelete('${stepId}','${block.id}')">✕</button>
+    </div>${renderStepBlockDivider(stepId, block.id)}`;
+  }
   if (block.type === 'callout') {
-    return renderCalloutBlock(
-      block,
-      `stepBlockDelete('${stepId}','${block.id}')`,
-      `stepBlockCalloutEdit('${stepId}','${block.id}')`
-    ) + renderStepBlockDivider(stepId, block.id);
+    return `<div style="display:flex;align-items:flex-start;gap:4px">${moveBtn}` +
+      `<div style="flex:1">` +
+      renderCalloutBlock(
+        block,
+        `stepBlockDelete('${stepId}','${block.id}')`,
+        `stepBlockCalloutEdit('${stepId}','${block.id}')`
+      ) +
+      `</div></div>` +
+      renderStepBlockDivider(stepId, block.id);
   }
   if (block.type === 'text') {
     return `
-      <div class="block-item block-text" id="step-block-${block.id}" draggable="true"
-           ondragstart="stepBlockDragStart(event,'${stepId}','${block.id}')"
-           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
-           ondrop="stepBlockDrop(event,'${stepId}','${block.id}')">
-        <div class="block-text-body" onclick="stepBlockTextEdit('${stepId}','${block.id}',true)" title="Click to edit">
-          <span class="block-drag-handle" title="Drag to reorder">⠿</span>
-          ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
-        </div>
-        <div class="block-text-edit" id="step-block-edit-${block.id}">
-          <div class="quill-host" id="step-block-qhost-${block.id}"></div>
-          ${_blockAiToolbar(block.id, '')}
-          <div class="gap-row" style="margin-top:.35rem">
-            <button class="btn btn-primary btn-sm" onclick="stepBlockTextSave('${stepId}','${block.id}')">Save</button>
-            <button class="btn btn-secondary btn-sm" onclick="stepBlockTextEdit('${stepId}','${block.id}',false)">Cancel</button>
-            <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">Delete</button>
+      <div class="block-item block-text" id="step-block-${block.id}" style="display:flex;align-items:flex-start;gap:4px">
+        ${moveBtn}
+        <div style="flex:1">
+          <div class="block-text-body" onclick="stepBlockTextEdit('${stepId}','${block.id}',true)" title="Click to edit">
+            ${block.content || '<span style="color:var(--text2);font-style:italic">Click to add text…</span>'}
+          </div>
+          <div class="block-text-edit" id="step-block-edit-${block.id}">
+            <div class="quill-host" id="step-block-qhost-${block.id}"></div>
+            ${_blockAiToolbar(block.id, '')}
+            <div class="gap-row" style="margin-top:.35rem">
+              <button class="btn btn-primary btn-sm" onclick="stepBlockTextSave('${stepId}','${block.id}')">Save</button>
+              <button class="btn btn-secondary btn-sm" onclick="stepBlockTextEdit('${stepId}','${block.id}',false)">Cancel</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">Delete</button>
+            </div>
           </div>
         </div>
       </div>
@@ -4282,25 +4408,24 @@ function renderStepBlock(stepId, block) {
       ? `<div class="block-ss-thumb" onclick="ssPreview('/api/screenshots/file/${fname}?_=${Date.now()}','${cap}')"><img src="/api/screenshots/file/${fname}?_=${Date.now()}" alt="${cap}"><div class="block-ss-caption">${cap || fname}</div></div>`
       : `<div class="block-ss-thumb" style="display:flex;align-items:center;justify-content:center;height:80px;color:var(--text2);font-size:.8rem;cursor:default">No image yet</div>`;
     return `
-      <div class="block-item block-screenshot" id="step-block-${block.id}" draggable="true"
-           ondragstart="stepBlockDragStart(event,'${stepId}','${block.id}')"
-           ondragover="blockDragOver(event,this)" ondragleave="blockDragLeave(this)"
-           ondrop="stepBlockDrop(event,'${stepId}','${block.id}')">
-        <span class="block-drag-handle" title="Drag to reorder" style="margin-top:.5rem">⠿</span>
-        ${imgHtml}
-        <div class="block-ss-meta">
-          <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
-          <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
-            onchange="stepBlockSsCaption('${stepId}','${block.id}',this.value)">
-           <div class="block-actions">
-             <button class="btn btn-secondary btn-sm" onclick="stepBlockSsPick('${stepId}','${block.id}')">📂 Repository</button>
-             <label class="btn btn-secondary btn-sm" style="cursor:pointer">⬆ Upload
-               <input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="stepBlockSsUpload(this,'${stepId}','${block.id}')">
-             </label>
-             <button class="btn btn-secondary btn-sm" onclick="stepBlockCapture('${stepId}','${block.id}')">📸 Capture</button>
-             <button class="btn btn-secondary btn-sm" onclick="stepBlockAnnotate('${stepId}','${block.id}','${fname}')">✏️ Annotate</button>
-             <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">✕</button>
-           </div>
+      <div class="block-item block-screenshot" id="step-block-${block.id}" style="display:flex;align-items:flex-start;gap:4px">
+        ${moveBtn}
+        <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
+          ${imgHtml}
+          <div class="block-ss-meta">
+            <div style="font-size:.75rem;font-weight:600;color:var(--text2)">Screenshot</div>
+            <input class="block-ss-cap-input" type="text" value="${cap}" placeholder="Caption…"
+              onchange="stepBlockSsCaption('${stepId}','${block.id}',this.value)">
+             <div class="block-actions">
+               <button class="btn btn-secondary btn-sm" onclick="stepBlockSsPick('${stepId}','${block.id}')">📂 Repository</button>
+               <label class="btn btn-secondary btn-sm" style="cursor:pointer">⬆ Upload
+                 <input type="file" accept=".png,.jpg,.jpeg" style="display:none" onchange="stepBlockSsUpload(this,'${stepId}','${block.id}')">
+               </label>
+               <button class="btn btn-secondary btn-sm" onclick="stepBlockCapture('${stepId}','${block.id}')">📸 Capture</button>
+               <button class="btn btn-secondary btn-sm" onclick="stepBlockAnnotate('${stepId}','${block.id}','${fname}')">✏️ Annotate</button>
+               <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="stepBlockDelete('${stepId}','${block.id}')">✕</button>
+             </div>
+          </div>
         </div>
       </div>
       ${renderStepBlockDivider(stepId, block.id)}`;
@@ -4309,19 +4434,21 @@ function renderStepBlock(stepId, block) {
 
 function _calloutMeta(calloutType) {
   const map = {
-    expected_result:  {css: 'callout-expected',  label: '✓ Expected Result'},
+    expected_result:  {css: 'callout-expected',  label: '✅ Expected Result'},
     note:             {css: 'callout-note',       label: '📝 Note'},
-    caution:          {css: 'callout-caution',    label: '⚠ Caution'},
+    caution:          {css: 'callout-caution',    label: '⚠️ Caution'},
     congratulations:  {css: 'callout-congrats',   label: '🎉 Congratulations'},
     tip:              {css: 'callout-tip',         label: '💡 Tip'},
+    team_challenge:   {css: 'callout-challenge',  label: '🏆 Team Challenge'},
   };
   return map[calloutType] || {css: 'callout-note', label: calloutType};
 }
 
 function renderCalloutBlock(block, deleteHandler, editHandler) {
   const {css, label} = _calloutMeta(block.callout_type);
+  const displayLabel = block.caption && block.caption.trim() ? block.caption : label;
   return `<div class="callout-block ${css}" id="callout-block-${block.id}">
-    <div class="callout-label">${label}</div>
+    <div class="callout-label">${displayLabel}</div>
     <div class="callout-content" id="callout-content-${block.id}">${block.content || '<em style="opacity:.6">Click ✎ to add text</em>'}</div>
     <div class="callout-edit-panel" id="callout-edit-${block.id}" style="display:none;margin-top:.5rem">
       <div class="quill-host" id="callout-qhost-${block.id}"></div>
@@ -4394,7 +4521,7 @@ function renderStep(step, globalNum) {
       <div class="step-body" id="step-body-${step.id}">${step.instruction}</div>
 
       <div class="step-block-list" id="step-block-list-${step.id}">
-        ${renderStepBlockDivider(step.id, null)}
+        ${renderStepBlockDivider(step.id, '__first__')}
         ${(step.blocks || []).map(b => renderStepBlock(step.id, b)).join('')}
         ${(step.blocks || []).length === 0 && (step.screenshots || []).length > 0 ? renderStepLegacyScreenshots(step) : ''}
       </div>
@@ -4436,13 +4563,25 @@ function renderObjectives() {
     container.innerHTML = '<p class="text-muted" style="font-size:.83rem">No objectives yet.</p>';
     return;
   }
+  const BLOOM_LEVELS = ['remember','understand','apply','analyze','evaluate','create'];
   container.innerHTML = objs.map(o => `
-    <div class="obj-item">
+    <div class="obj-item" id="obj-item-${o.id}" draggable="true" data-obj-id="${o.id}">
+      <span class="obj-drag-handle" title="Drag to reorder">⠿</span>
       <span class="bloom-badge bloom-${o.bloom_level}">${o.bloom_level}</span>
-      <span style="flex:1;font-size:.83rem">${o.text}</span>
+      <span class="obj-text" id="obj-text-${o.id}" style="flex:1;font-size:.83rem">${o.text}</span>
+      <div class="obj-edit-form" id="obj-edit-${o.id}" style="display:none;flex:1;gap:6px;align-items:flex-start;flex-wrap:wrap">
+        <textarea id="obj-ta-${o.id}" style="flex:1;min-width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px;padding:4px 6px;font-size:.82rem;resize:vertical;min-height:48px">${o.text}</textarea>
+        <select id="obj-bloom-${o.id}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px;padding:3px 6px;font-size:.78rem">
+          ${BLOOM_LEVELS.map(l => `<option value="${l}" ${l===o.bloom_level?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="saveObjective('${o.id}')">Save</button>
+        <button class="btn btn-secondary btn-sm" onclick="cancelObjectiveEdit('${o.id}')">Cancel</button>
+      </div>
+      <button class="btn-icon" onclick="startObjectiveEdit('${o.id}')" title="Edit">✎</button>
       <button class="btn-icon" onclick="deleteObjective('${o.id}')" title="Remove">✕</button>
     </div>
   `).join('');
+  _initObjDragSort(container);
 }
 
 function toggleSection(header) {
@@ -4454,6 +4593,125 @@ function toggleSection(header) {
 // ── Quill editor registry ─────────────────────────────────────
 const _quillEditors = {};   // stepId → Quill instance
 const _blockQuills  = {};   // blockId → Quill instance (text blocks + callouts)
+
+// ── Quill HR blot (divider) ────────────────────────────────────
+(function() {
+  const BlockEmbed = Quill.import('blots/block/embed');
+  class DividerBlot extends BlockEmbed {
+    static create() {
+      const node = super.create();
+      node.setAttribute('style', 'border:none;border-top:2px solid #334466;margin:12px 0;');
+      return node;
+    }
+  }
+  DividerBlot.blotName = 'divider';
+  DividerBlot.tagName  = 'hr';
+  Quill.register(DividerBlot);
+})();
+
+// ── Table picker popup ─────────────────────────────────────────
+let _tablePickerEl = null;
+function _showTablePicker(btn, quill) {
+  if (_tablePickerEl) { _tablePickerEl.remove(); _tablePickerEl = null; return; }
+  const maxR = 8, maxC = 8;
+  const popup = document.createElement('div');
+  popup.className = 'table-picker-popup';
+  _tablePickerEl = popup;
+  const label = document.createElement('div');
+  label.className = 'tp-label';
+  label.textContent = '1×1';
+  popup.appendChild(label);
+  const grid = document.createElement('div');
+  grid.className = 'table-picker-grid';
+  grid.style.gridTemplateColumns = `repeat(${maxC}, 18px)`;
+  popup.appendChild(grid);
+  const cells = [];
+  for (let r = 1; r <= maxR; r++) {
+    for (let c = 1; c <= maxC; c++) {
+      const s = document.createElement('span');
+      s.dataset.r = r; s.dataset.c = c;
+      cells.push(s);
+      s.addEventListener('mouseover', () => {
+        label.textContent = `${r}×${c}`;
+        cells.forEach(el => {
+          el.classList.toggle('tp-hover', +el.dataset.r <= r && +el.dataset.c <= c);
+        });
+      });
+      s.addEventListener('click', () => {
+        _insertTable(quill, r, c);
+        popup.remove(); _tablePickerEl = null;
+      });
+      grid.appendChild(s);
+    }
+  }
+  document.addEventListener('click', function _close(e) {
+    if (!popup.contains(e.target) && e.target !== btn) {
+      popup.remove(); _tablePickerEl = null;
+      document.removeEventListener('click', _close);
+    }
+  });
+  const rect = btn.getBoundingClientRect();
+  popup.style.position = 'fixed';
+  popup.style.top  = (rect.bottom + 4) + 'px';
+  popup.style.left = rect.left + 'px';
+  document.body.appendChild(popup);
+}
+
+function _insertTable(quill, rows, cols) {
+  const header = '<tr>' + Array(cols).fill('<th style="border:1px solid #334466;padding:6px 10px;background:#162035;min-width:80px">&nbsp;</th>').join('') + '</tr>';
+  const dataRow = '<tr>' + Array(cols).fill('<td style="border:1px solid #334466;padding:6px 10px;min-width:80px">&nbsp;</td>').join('') + '</tr>';
+  const html = '<table style="border-collapse:collapse;width:100%;margin:8px 0"><thead>' + header + '</thead><tbody>' + Array(rows - 1 < 1 ? 1 : rows - 1).fill(dataRow).join('') + '</tbody></table>';
+  const range = quill.getSelection(true);
+  quill.clipboard.dangerouslyPasteHTML(range ? range.index : quill.getLength(), html);
+}
+
+// ── Shared helper: append divider + table buttons to a toolbar ─
+function _appendEditorExtras(toolbar, quill) {
+  // Divider button
+  const divBtn = document.createElement('button');
+  divBtn.className = 'ql-divider-btn';
+  divBtn.title = 'Insert horizontal divider';
+  divBtn.textContent = '─ HR';
+  divBtn.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const range = quill.getSelection(true);
+    const idx = range ? range.index : quill.getLength();
+    quill.insertEmbed(idx, 'divider', true, 'user');
+    quill.setSelection(idx + 1, 0);
+  };
+  // Table button
+  const tblBtn = document.createElement('button');
+  tblBtn.className = 'ql-table-btn';
+  tblBtn.title = 'Insert table';
+  tblBtn.textContent = '⊞ Table';
+  tblBtn.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    _showTablePicker(tblBtn, quill);
+  };
+  toolbar.appendChild(divBtn);
+  toolbar.appendChild(tblBtn);
+}
+
+// ── Strip background/color/font junk from pasted content ──────
+function _quillStripPasteStyles(quill) {
+  const Clipboard = Quill.import('modules/clipboard');
+  const Delta = Quill.import('delta');
+  // Strip unwanted inline attributes from every pasted node
+  quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+    delta.ops = delta.ops.map(op => {
+      if (op.attributes) {
+        delete op.attributes.background;
+        delete op.attributes.color;
+        delete op.attributes.font;
+        delete op.attributes.size;
+        // Remove any inline style that carries background shading
+        if (op.attributes.style) delete op.attributes.style;
+      }
+      return op;
+    });
+    return delta;
+  });
+}
 
 function _initBlockQuill(blockId, hostId, content) {
   if (_blockQuills[blockId]) {
@@ -4472,13 +4730,15 @@ function _initBlockQuill(blockId, hostId, content) {
         [{header:[1,2,3,false]}],
         ['clean'],
       ],
+      clipboard: { matchVisual: false },
     },
   });
+  _quillStripPasteStyles(q);
   if (content) {
     const delta = q.clipboard.convert({html: content});
     q.setContents(delta, 'silent');
   }
-  // Inject emoji button into this block's toolbar
+  // Inject emoji + divider + table buttons into this block's toolbar
   const toolbar = host.querySelector('.ql-toolbar');
   if (toolbar) {
     const emojiBtn = document.createElement('button');
@@ -4487,6 +4747,7 @@ function _initBlockQuill(blockId, hostId, content) {
     emojiBtn.textContent = '😊';
     emojiBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); _showEmojiPicker(emojiBtn, q); };
     toolbar.appendChild(emojiBtn);
+    _appendEditorExtras(toolbar, q);
   }
   _blockQuills[blockId] = q;
   return q;
@@ -4572,8 +4833,10 @@ function _initQuill(stepId, htmlContent) {
           ['clean'],
         ],
       },
+      clipboard: { matchVisual: false },
     },
   });
+  _quillStripPasteStyles(quill);
 
   // Inject initial HTML content
   if (htmlContent && htmlContent.trim()) {
@@ -4581,7 +4844,7 @@ function _initQuill(stepId, htmlContent) {
     quill.setContents(delta, 'silent');
   }
 
-  // Append custom emoji button to toolbar
+  // Append custom emoji + divider + table buttons to toolbar
   const toolbar = host.querySelector('.ql-toolbar');
   if (toolbar) {
     const emojiBtn = document.createElement('button');
@@ -4594,6 +4857,7 @@ function _initQuill(stepId, htmlContent) {
       _showEmojiPicker(emojiBtn, quill);
     };
     toolbar.appendChild(emojiBtn);
+    _appendEditorExtras(toolbar, quill);
   }
 
   _quillEditors[stepId] = quill;
@@ -6049,7 +6313,7 @@ async function annSave() {
     closeModal('modal-annotate');
     if (_annContext.type === 'session') {
       const wrap = document.getElementById('sess-thumbs-' + _annContext.sid);
-      if (wrap && wrap.querySelector('img')) loadSessionThumbs(_annContext.sid);
+      if (wrap) loadSessionThumbs(_annContext.sid);
     } else if (_annContext.type === 'step') {
       // Refresh just this step's thumbnails — the file is already in the repo
       await loadGuide(_annContext.guideId || currentGuideId);
@@ -6290,23 +6554,34 @@ async function blockAddText(secId, afterId) {
     body: JSON.stringify({type:'text', content:'', after_id: afterId}),
   });
   await loadGuide(currentGuideId);
-  // Auto-focus the new text block
+  // Auto-open and scroll to the new text block
   setTimeout(() => {
     const list = document.getElementById('block-list-' + secId);
     if (!list) return;
     const blocks = list.querySelectorAll('.block-text');
-    if (blocks.length) {
-      const last = blocks[blocks.length - 1];
-      const body = last.querySelector('.block-text-body');
+    if (!blocks.length) return;
+    // Find the new empty block (afterId = null means first, otherwise find block after afterId)
+    let target = blocks[blocks.length - 1];
+    if (target) {
+      target.scrollIntoView({behavior:'smooth', block:'center'});
+      const body = target.querySelector('.block-text-body');
       if (body) body.click();
     }
-  }, 100);
+  }, 200);
 }
 
 async function blockAddScreenshot(secId, afterId) {
   await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({type:'screenshot', content:'', after_id: afterId}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function blockAddDivider(secId, afterId) {
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'divider', content:'', after_id: afterId}),
   });
   await loadGuide(currentGuideId);
 }
@@ -6357,6 +6632,66 @@ async function blockTextSave(secId, blockId) {
 async function blockDelete(secId, blockId) {
   if (!confirm('Delete this block?')) return;
   await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/${blockId}`, {method:'DELETE'});
+  await loadGuide(currentGuideId);
+}
+
+async function moveBlockUp(secId, blockId) {
+  const sec = currentGuide.sections.find(s => s.id === secId);
+  if (!sec) return;
+  const ids = sec.blocks.map(b => b.id);
+  const idx = ids.indexOf(blockId);
+  if (idx <= 0) return;
+  ids.splice(idx - 1, 0, ids.splice(idx, 1)[0]);
+  await _saveBlockOrder(secId, ids);
+}
+
+async function moveBlockDown(secId, blockId) {
+  const sec = currentGuide.sections.find(s => s.id === secId);
+  if (!sec) return;
+  const ids = sec.blocks.map(b => b.id);
+  const idx = ids.indexOf(blockId);
+  if (idx === -1 || idx >= ids.length - 1) return;
+  ids.splice(idx + 1, 0, ids.splice(idx, 1)[0]);
+  await _saveBlockOrder(secId, ids);
+}
+
+async function _saveBlockOrder(secId, ids) {
+  await fetch(`/api/guides/${currentGuideId}/section/${secId}/blocks/reorder`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({order: ids}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function moveStepBlockUp(stepId, blockId) {
+  const sec = currentGuide.sections.find(s => (s.steps||[]).some(st => st.id === stepId));
+  if (!sec) return;
+  const step = sec.steps.find(st => st.id === stepId);
+  if (!step) return;
+  const ids = step.blocks.map(b => b.id);
+  const idx = ids.indexOf(blockId);
+  if (idx <= 0) return;
+  ids.splice(idx - 1, 0, ids.splice(idx, 1)[0]);
+  await _saveStepBlockOrder(stepId, ids);
+}
+
+async function moveStepBlockDown(stepId, blockId) {
+  const sec = currentGuide.sections.find(s => (s.steps||[]).some(st => st.id === stepId));
+  if (!sec) return;
+  const step = sec.steps.find(st => st.id === stepId);
+  if (!step) return;
+  const ids = step.blocks.map(b => b.id);
+  const idx = ids.indexOf(blockId);
+  if (idx === -1 || idx >= ids.length - 1) return;
+  ids.splice(idx + 1, 0, ids.splice(idx, 1)[0]);
+  await _saveStepBlockOrder(stepId, ids);
+}
+
+async function _saveStepBlockOrder(stepId, ids) {
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks/reorder`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({order: ids}),
+  });
   await loadGuide(currentGuideId);
 }
 
@@ -6444,17 +6779,23 @@ function secDragOver(e, el) {
   e.stopPropagation();
   if (el.id !== 'secblock-' + _secDragId) el.classList.add('sec-drag-over');
 }
-function secDragLeave(el) { el.classList.remove('sec-drag-over'); }
-async function secDrop(e, targetSecId) {
-  e.preventDefault();
-  e.stopPropagation();
-  document.querySelectorAll('.section-block').forEach(b => b.classList.remove('sec-drag-over'));
-  if (!_secDragId || _secDragId === targetSecId) return;
+async function moveSectionUp(secId) {
   const ids = currentGuide.sections.map(s => s.id);
-  const fromIdx = ids.indexOf(_secDragId);
-  const toIdx = ids.indexOf(targetSecId);
-  if (fromIdx === -1 || toIdx === -1) return;
-  ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+  const idx = ids.indexOf(secId);
+  if (idx <= 0) return;
+  ids.splice(idx - 1, 0, ids.splice(idx, 1)[0]);
+  await _saveSectionOrder(ids);
+}
+
+async function moveSectionDown(secId) {
+  const ids = currentGuide.sections.map(s => s.id);
+  const idx = ids.indexOf(secId);
+  if (idx === -1 || idx >= ids.length - 1) return;
+  ids.splice(idx + 1, 0, ids.splice(idx, 1)[0]);
+  await _saveSectionOrder(ids);
+}
+
+async function _saveSectionOrder(ids) {
   const res = await fetch(`/api/guides/${currentGuideId}/sections/reorder`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({order: ids}),
   });
@@ -6478,12 +6819,23 @@ async function _calloutPick(calloutType) {
   const url = scope === 'step'
     ? `/api/guides/${currentGuideId}/step/${targetId}/blocks`
     : `/api/guides/${currentGuideId}/section/${targetId}/blocks`;
-  await fetch(url, {
+  const res = await fetch(url, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({type:'callout', callout_type: calloutType, content:'', after: afterBlockId}),
   });
+  const newBlock = await res.json();
   await loadGuide(currentGuideId);
-  // Prompt user to enter text immediately
+  // Auto-open the editor immediately so user never sees the placeholder
+  const blockId = newBlock.id;
+  if (blockId) {
+    setTimeout(() => {
+      if (scope === 'step') {
+        stepBlockCalloutEdit(targetId, blockId);
+      } else {
+        _openCalloutEdit(blockId);
+      }
+    }, 150);
+  }
   _calloutCtx = null;
 }
 
@@ -6572,6 +6924,14 @@ async function stepBlockAddScreenshot(stepId, afterBlockId) {
   await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({type:'screenshot', path:'', caption:'', after: afterBlockId}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+async function stepBlockAddDivider(stepId, afterBlockId) {
+  await fetch(`/api/guides/${currentGuideId}/step/${stepId}/blocks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({type:'divider', content:'', after: afterBlockId}),
   });
   await loadGuide(currentGuideId);
 }
@@ -6870,6 +7230,67 @@ async function addObjective() {
 async function deleteObjective(objId) {
   await fetch(`/api/guides/${currentGuideId}/objective/${objId}`, {method:'DELETE'});
   await loadGuide(currentGuideId);
+}
+
+function startObjectiveEdit(objId) {
+  document.getElementById('obj-text-' + objId).style.display = 'none';
+  document.getElementById('obj-edit-' + objId).style.display = 'flex';
+  document.getElementById('obj-ta-' + objId).focus();
+}
+
+function cancelObjectiveEdit(objId) {
+  document.getElementById('obj-text-' + objId).style.display = '';
+  document.getElementById('obj-edit-' + objId).style.display = 'none';
+}
+
+async function saveObjective(objId) {
+  const text = document.getElementById('obj-ta-' + objId).value.trim();
+  const bloom_level = document.getElementById('obj-bloom-' + objId).value;
+  if (!text) return;
+  await fetch(`/api/guides/${currentGuideId}/objective/${objId}`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text, bloom_level}),
+  });
+  await loadGuide(currentGuideId);
+}
+
+function _initObjDragSort(container) {
+  let dragSrc = null;
+  container.querySelectorAll('.obj-item').forEach(item => {
+    item.addEventListener('dragstart', e => {
+      dragSrc = item;
+      item.classList.add('obj-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.dataset.objId);
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('obj-dragging');
+      container.querySelectorAll('.obj-item').forEach(i => i.classList.remove('obj-dragover'));
+    });
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      container.querySelectorAll('.obj-item').forEach(i => i.classList.remove('obj-dragover'));
+      if (item !== dragSrc) item.classList.add('obj-dragover');
+    });
+    item.addEventListener('drop', async e => {
+      e.preventDefault();
+      if (!dragSrc || dragSrc === item) return;
+      // Reorder in DOM
+      const items = [...container.querySelectorAll('.obj-item')];
+      const srcIdx = items.indexOf(dragSrc);
+      const tgtIdx = items.indexOf(item);
+      if (srcIdx < tgtIdx) item.after(dragSrc);
+      else item.before(dragSrc);
+      item.classList.remove('obj-dragover');
+      // Save new order to server
+      const order = [...container.querySelectorAll('.obj-item')].map(i => i.dataset.objId);
+      await fetch(`/api/guides/${currentGuideId}/objectives/reorder`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({order}),
+      });
+    });
+  });
 }
 
 async function addStepToSection(sectionId) {
@@ -7619,7 +8040,7 @@ async function loadSessionThumbs(sid) {
       '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
       shots.map(sh =>
         '<div style="position:relative;display:inline-block">' +
-          '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '/thumb"' +
+          '<img src="/api/sessions/' + sid + '/screenshots/' + encodeURIComponent(sh.filename) + '/thumb?t=' + Date.now() + '"' +
           ' title="' + sh.filename + '"' +
           ' data-action="preview-shot" data-sid="' + sid + '" data-filename="' + sh.filename.replace(/"/g,'&quot;') + '"' +
           ' style="height:90px;width:auto;border-radius:4px;border:1px solid var(--border);cursor:pointer;object-fit:cover;display:block">' +

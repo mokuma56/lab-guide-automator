@@ -95,8 +95,9 @@ class _QuillToMd(_HTMLParser):
     """Lightweight Quill HTML → Markdown converter (stdlib only)."""
 
     _BLOCK_TAGS = {"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-                   "blockquote", "pre", "tr"}
-    _IGNORE_TAGS = {"span", "a", "em", "i", "u", "s", "code"}  # inline — pass through text
+                   "blockquote"}
+    _HEADING_MAP = {"h1": "#", "h2": "##", "h3": "###", "h4": "####", "h5": "#####", "h6": "######"}
+    _IGNORE_TAGS = {"span", "em", "i", "u", "s", "code", "thead", "tbody", "table"}
 
     def __init__(self):
         super().__init__()
@@ -106,6 +107,16 @@ class _QuillToMd(_HTMLParser):
         self._link_href = ""
         self._in_li = False
         self._li_prefix = ""
+        self._in_pre = False
+        self._pre_buf: list[str] = []
+        # Table state
+        self._in_table = False
+        self._in_th = False
+        self._in_td = False
+        self._col_idx = 0
+        self._row_idx = 0
+        self._table_row_buf: list[str] = []
+        self._table_header_done = False
 
     def handle_starttag(self, tag, attrs):
         attr = dict(attrs)
@@ -122,6 +133,29 @@ class _QuillToMd(_HTMLParser):
             self._parts.append(self._li_prefix)
         elif tag in ("br",):
             self._parts.append("  \n")
+        elif tag == "pre":
+            self._in_pre = True
+            self._pre_buf = []
+        elif tag == "code" and not self._in_pre:
+            pass  # inline code — data flows through normally
+        elif tag == "hr":
+            self._parts.append("\n\n---\n\n")
+        elif tag == "table":
+            self._in_table = True
+            self._row_idx = 0
+            self._table_header_done = False
+            self._parts.append("\n\n")
+        elif tag == "tr":
+            self._table_row_buf = []
+            self._col_idx = 0
+        elif tag == "th":
+            self._in_th = True
+            self._col_idx += 1
+        elif tag == "td":
+            self._in_td = True
+            self._col_idx += 1
+        elif tag in self._HEADING_MAP:
+            self._parts.append(self._HEADING_MAP[tag] + " ")
 
     def handle_endtag(self, tag):
         if tag == "strong" or tag == "b":
@@ -130,9 +164,35 @@ class _QuillToMd(_HTMLParser):
             self._italic = max(0, self._italic - 1)
         elif tag == "a":
             self._link_href = ""
-        elif tag in self._BLOCK_TAGS:
+        elif tag in self._BLOCK_TAGS or tag in self._HEADING_MAP:
             self._parts.append("\n\n")
             self._in_li = False
+        elif tag == "pre":
+            content = "".join(self._pre_buf).strip()
+            self._parts.append(f"\n\n```\n{content}\n```\n\n")
+            self._in_pre = False
+            self._pre_buf = []
+        elif tag in ("th", "td"):
+            cell = "".join(self._table_row_buf).strip()
+            self._parts.append(f"| {cell} ")
+            self._table_row_buf = []
+            self._in_th = False
+            self._in_td = False
+        elif tag == "tr":
+            self._parts.append("|\n")
+            self._row_idx += 1
+            # After the first row (header), emit the separator
+            if self._row_idx == 1 and not self._table_header_done:
+                # Count columns from pipe chars in last row
+                last_row = "".join(self._parts).split("\n")[-2]
+                col_count = last_row.count("|") - 1
+                if col_count < 1:
+                    col_count = 1
+                self._parts.append("|" + " --- |" * col_count + "\n")
+                self._table_header_done = True
+        elif tag == "table":
+            self._in_table = False
+            self._parts.append("\n\n")
 
     def handle_data(self, data):
         # Strip the drag-handle glyph that may have leaked in
@@ -145,7 +205,13 @@ class _QuillToMd(_HTMLParser):
             data = f"*{data}*"
         if self._link_href:
             data = f"[{data}]({self._link_href})"
-        self._parts.append(data)
+        # Route table cell data to buffer, not main parts
+        if self._in_th or self._in_td:
+            self._table_row_buf.append(data)
+        elif self._in_pre:
+            self._pre_buf.append(data)
+        else:
+            self._parts.append(data)
 
     def handle_entityref(self, name):
         self._parts.append(_html_mod.unescape(f"&{name};"))
@@ -564,8 +630,12 @@ def export_pdf(guide: LabGuide, output_path: Path) -> Path:
 def export_docx(guide: LabGuide, output_path: Path) -> Path:
     try:
         from docx import Document
-        from docx.shared import Pt, RGBColor, Inches
+        from docx.shared import Pt, RGBColor, Inches, Cm
         from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        import html as _html_mod2
+        from html.parser import HTMLParser
     except ImportError:
         raise RuntimeError("python-docx is required: pip install python-docx")
 
@@ -575,54 +645,367 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
         "caution":         "⚠️ Caution",
         "congratulations": "🎉 Congratulations",
         "tip":             "💡 Tip",
+        "team_challenge":  "🏆 Team Challenge",
     }
 
-    def _add_text_block(content: str):
-        """Add a Quill HTML text block as clean paragraphs to the docx."""
-        text = _to_plain(content)
+    _CALLOUT_COLOR = {
+        "expected_result": RGBColor(0xE6, 0xF4, 0xEA),
+        "note":            RGBColor(0xE8, 0xF0, 0xFE),
+        "caution":         RGBColor(0xFF, 0xF3, 0xE0),
+        "congratulations": RGBColor(0xF3, 0xE5, 0xF5),
+        "tip":             RGBColor(0xE0, 0xF7, 0xFA),
+        "team_challenge":  RGBColor(0xFF, 0xFB, 0xEB),
+    }
+
+    def _shade_paragraph(p, rgb: RGBColor):
+        """Apply a background shading colour to a paragraph."""
+        pPr = p._p.get_or_add_pPr()
+        shd = OxmlElement('w:shd')
+        hex_color = f"{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+        shd.set(qn('w:val'), 'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'), hex_color)
+        pPr.append(shd)
+
+    class _HtmlToDocx(HTMLParser):
+        """Parse Quill/HTML into docx paragraphs with proper formatting."""
+        def __init__(self):
+            super().__init__()
+            self._bold = 0
+            self._italic = 0
+            self._code = 0
+            self._link = ""
+            self._list_type = []   # stack: 'ul' | 'ol'
+            self._ol_counter = []  # counter per ol level
+            self._in_table = False
+            self._in_th = False
+            self._in_td = False
+            self._table = None
+            self._table_row = None
+            self._table_cell = None
+            self._cell_buf = []
+            self._in_pre = False
+            self._pre_buf = []
+            self._skip_tags = {"head", "style", "script"}
+            self._skip = 0
+            self._cur_para = None
+            self._heading_level = 0
+
+        def _new_para(self, style="Normal"):
+            self._cur_para = doc.add_paragraph(style=style)
+            return self._cur_para
+
+        def _run(self, text):
+            if not text:
+                return
+            if self._in_pre:
+                self._pre_buf.append(text)
+                return
+            if self._in_td or self._in_th:
+                self._cell_buf.append(text)
+                return
+            if self._cur_para is None:
+                self._cur_para = doc.add_paragraph()
+            run = self._cur_para.add_run(text)
+            if self._bold:
+                run.bold = True
+            if self._italic:
+                run.italic = True
+            if self._code:
+                run.font.name = "Courier New"
+                run.font.size = Pt(9)
+
+        def handle_starttag(self, tag, attrs):
+            attr = dict(attrs)
+            if tag in self._skip_tags:
+                self._skip += 1
+                return
+            if self._skip:
+                return
+            if tag in ("p", "div") and not self._in_table:
+                self._cur_para = doc.add_paragraph()
+            elif tag == "br":
+                if self._cur_para:
+                    self._cur_para.add_run("\n")
+            elif tag in ("h1","h2","h3","h4","h5","h6"):
+                lvl = int(tag[1])
+                self._heading_level = lvl
+                # Map h1→2, h2→3, h3→3 to avoid overriding section headings
+                docx_lvl = min(lvl + 1, 4)
+                self._cur_para = doc.add_heading("", level=docx_lvl)
+            elif tag == "strong" or tag == "b":
+                self._bold += 1
+            elif tag == "em" or tag == "i":
+                self._italic += 1
+            elif tag == "code":
+                self._code += 1
+            elif tag == "a":
+                self._link = attr.get("href", "")
+            elif tag == "ul":
+                self._list_type.append("ul")
+            elif tag == "ol":
+                self._list_type.append("ol")
+                self._ol_counter.append(0)
+            elif tag == "li":
+                if self._list_type and self._list_type[-1] == "ol":
+                    self._ol_counter[-1] += 1
+                    self._cur_para = doc.add_paragraph(style="List Number")
+                else:
+                    self._cur_para = doc.add_paragraph(style="List Bullet")
+            elif tag == "blockquote":
+                self._cur_para = doc.add_paragraph(style="Quote")
+            elif tag == "pre":
+                self._in_pre = True
+                self._pre_buf = []
+            elif tag == "hr":
+                # Add a horizontal line paragraph
+                p = doc.add_paragraph()
+                pPr = p._p.get_or_add_pPr()
+                pBdr = OxmlElement('w:pBdr')
+                bottom = OxmlElement('w:bottom')
+                bottom.set(qn('w:val'), 'single')
+                bottom.set(qn('w:sz'), '6')
+                bottom.set(qn('w:space'), '1')
+                bottom.set(qn('w:color'), 'AAAAAA')
+                pBdr.append(bottom)
+                pPr.append(pBdr)
+                self._cur_para = None
+            elif tag == "table":
+                self._in_table = True
+                self._table = doc.add_table(rows=0, cols=1)
+                self._table.style = "Table Grid"
+            elif tag == "tr":
+                if self._table:
+                    self._table_row = self._table.add_row()
+            elif tag in ("th", "td"):
+                self._cell_buf = []
+                self._in_th = (tag == "th")
+                self._in_td = (tag == "td")
+
+        def handle_endtag(self, tag):
+            if tag in self._skip_tags:
+                self._skip = max(0, self._skip - 1)
+                return
+            if tag == "strong" or tag == "b":
+                self._bold = max(0, self._bold - 1)
+            elif tag == "em" or tag == "i":
+                self._italic = max(0, self._italic - 1)
+            elif tag == "code":
+                self._code = max(0, self._code - 1)
+            elif tag == "a":
+                self._link = ""
+            elif tag == "ul":
+                if self._list_type:
+                    self._list_type.pop()
+                self._cur_para = None
+            elif tag == "ol":
+                if self._list_type:
+                    self._list_type.pop()
+                if self._ol_counter:
+                    self._ol_counter.pop()
+                self._cur_para = None
+            elif tag == "pre":
+                text = "".join(self._pre_buf).strip()
+                if text:
+                    p = doc.add_paragraph(text)
+                    p.style = "Normal"
+                    for run in p.runs:
+                        run.font.name = "Courier New"
+                        run.font.size = Pt(8)
+                    # Light grey background
+                    _shade_paragraph(p, RGBColor(0xF4, 0xF4, 0xF4))
+                self._in_pre = False
+                self._pre_buf = []
+            elif tag in ("th", "td"):
+                text = "".join(self._cell_buf).strip()
+                if self._table_row:
+                    col_idx = len(self._table_row.cells) - 1
+                    # Expand columns if needed
+                    while len(self._table.columns) <= col_idx:
+                        # Add a column by adding a cell to each row
+                        pass
+                    try:
+                        cell = self._table_row.cells[col_idx] if col_idx < len(self._table_row.cells) else self._table_row.cells[-1]
+                        cell.text = text
+                        if self._in_th:
+                            for run in cell.paragraphs[0].runs:
+                                run.bold = True
+                    except Exception:
+                        pass
+                self._in_th = False
+                self._in_td = False
+                self._cell_buf = []
+            elif tag == "table":
+                self._in_table = False
+                self._table = None
+                self._table_row = None
+                self._cur_para = None
+            elif tag in ("h1","h2","h3","h4","h5","h6"):
+                self._heading_level = 0
+                self._cur_para = None
+            elif tag in ("p", "li", "blockquote", "div"):
+                self._cur_para = None
+
+        def handle_data(self, data):
+            data = data.replace("\u283f", "").replace("\u00a0", " ")
+            if self._skip:
+                return
+            self._run(data)
+
+        def handle_entityref(self, name):
+            self._run(_html_mod2.unescape(f"&{name};"))
+
+        def handle_charref(self, name):
+            self._run(_html_mod2.unescape(f"&#{name};"))
+
+    def _add_html_content(html_content: str):
+        """Parse HTML content and add to docx."""
+        if not html_content or not html_content.strip():
+            return
+        # Handle <!--markdown--> blocks — strip marker, convert to plain text
+        if html_content.startswith("<!--markdown-->"):
+            md = html_content[len("<!--markdown-->"):].strip()
+            # Strip any inline HTML tags from markdown content
+            import re as _re2
+            md_clean = _re2.sub(r'<[^>]+>', '', md)
+            md_clean = _html_mod2.unescape(md_clean)
+            # Split on double newlines and add as paragraphs
+            for chunk in md_clean.split("\n\n"):
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
+                # Detect headings
+                if chunk.startswith("### "):
+                    doc.add_heading(chunk[4:], level=3)
+                elif chunk.startswith("## "):
+                    doc.add_heading(chunk[3:], level=2)
+                elif chunk.startswith("# "):
+                    doc.add_heading(chunk[2:], level=2)
+                elif chunk.startswith("---"):
+                    p = doc.add_paragraph()
+                    pPr = p._p.get_or_add_pPr()
+                    pBdr = OxmlElement('w:pBdr')
+                    bottom = OxmlElement('w:bottom')
+                    bottom.set(qn('w:val'), 'single')
+                    bottom.set(qn('w:sz'), '6')
+                    bottom.set(qn('w:space'), '1')
+                    bottom.set(qn('w:color'), 'AAAAAA')
+                    pBdr.append(bottom)
+                    pPr.append(pBdr)
+                elif chunk.startswith("```"):
+                    code = _re2.sub(r'^```[^\n]*\n?', '', chunk).rstrip('`').strip()
+                    if code:
+                        p = doc.add_paragraph(code)
+                        _shade_paragraph(p, RGBColor(0xF4, 0xF4, 0xF4))
+                        for run in p.runs:
+                            run.font.name = "Courier New"
+                            run.font.size = Pt(8)
+                elif _re2.match(r'^[-*] ', chunk.split('\n')[0]):
+                    for line in chunk.split('\n'):
+                        line = _re2.sub(r'^[-*] ', '', line).strip()
+                        if line:
+                            doc.add_paragraph(line, style="List Bullet")
+                elif _re2.match(r'^\d+\. ', chunk.split('\n')[0]):
+                    for line in chunk.split('\n'):
+                        line = _re2.sub(r'^\d+\. ', '', line).strip()
+                        if line:
+                            doc.add_paragraph(line, style="List Number")
+                elif '|' in chunk and chunk.count('|') > 2:
+                    # Markdown table — render as plain text rows
+                    rows = [r for r in chunk.split('\n') if r.strip() and not _re2.match(r'^\s*\|[-| ]+\|\s*$', r)]
+                    if rows:
+                        cols = [c.strip() for c in rows[0].split('|') if c.strip()]
+                        tbl = doc.add_table(rows=len(rows), cols=len(cols))
+                        tbl.style = "Table Grid"
+                        for ri, row in enumerate(rows):
+                            cells = [c.strip() for c in row.split('|') if c.strip()]
+                            for ci, cell_text in enumerate(cells[:len(cols)]):
+                                cell = tbl.rows[ri].cells[ci]
+                                cell.text = cell_text
+                                if ri == 0:
+                                    for run in cell.paragraphs[0].runs:
+                                        run.bold = True
+                else:
+                    # Remove markdown bold/italic markers for plain para
+                    plain = _re2.sub(r'\*\*(.+?)\*\*', r'\1', chunk)
+                    plain = _re2.sub(r'\*(.+?)\*', r'\1', plain)
+                    plain = _re2.sub(r'__(.+?)__', r'\1', plain)
+                    plain = _re2.sub(r'`(.+?)`', r'\1', plain)
+                    if plain.strip():
+                        doc.add_paragraph(plain.strip())
+            return
+        # Regular HTML — use parser
+        parser = _HtmlToDocx()
+        parser.feed(html_content)
+
+    def _add_callout(callout_type: str, content: str, caption: str = ""):
+        label = caption if caption and caption.strip() else _CALLOUT_LABEL.get(callout_type, callout_type or "Note")
+        color = _CALLOUT_COLOR.get(callout_type, RGBColor(0xE8, 0xF0, 0xFE))
+        # Label paragraph
+        p_label = doc.add_paragraph()
+        run = p_label.add_run(f"  {label}")
+        run.bold = True
+        _shade_paragraph(p_label, color)
+        # Content paragraph(s)
+        text = _to_plain(content) if content else ""
         for chunk in text.split("\n\n"):
             chunk = chunk.strip()
             if chunk:
-                doc.add_paragraph(chunk)
+                p = doc.add_paragraph(f"  {chunk}")
+                _shade_paragraph(p, color)
 
     def _add_screenshot(path_str: str):
         img_path = _resolve_screenshot_path(path_str)
         if img_path.exists():
             try:
                 doc.add_picture(str(img_path), width=Inches(5.5))
+                doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
             except Exception:
                 pass
-
-    def _add_callout(callout_type: str, content: str):
-        label = _CALLOUT_LABEL.get(callout_type, callout_type or "Note")
-        p = doc.add_paragraph()
-        p.add_run(f"{label}: ").bold = True
-        p.add_run(_to_plain(content) if content else "")
 
     def _add_blocks(blocks):
         for blk in blocks:
             if blk.type == "text" and blk.content:
-                _add_text_block(blk.content)
+                _add_html_content(blk.content)
             elif blk.type == "screenshot" and blk.path:
                 _add_screenshot(blk.path)
             elif blk.type == "callout":
-                _add_callout(blk.callout_type or "note", blk.content or "")
+                _add_callout(blk.callout_type or "note", blk.content or "", blk.caption or "")
+            elif blk.type == "divider":
+                p = doc.add_paragraph()
+                pPr = p._p.get_or_add_pPr()
+                pBdr = OxmlElement('w:pBdr')
+                bottom = OxmlElement('w:bottom')
+                bottom.set(qn('w:val'), 'single')
+                bottom.set(qn('w:sz'), '6')
+                bottom.set(qn('w:space'), '1')
+                bottom.set(qn('w:color'), 'AAAAAA')
+                pBdr.append(bottom)
+                pPr.append(pBdr)
 
     doc = Document()
     m = guide.metadata
 
+    # ── Document styles tweaks ───────────────────────────────
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(11)
+
     # Title
-    doc.add_heading(m.title, 0)
+    doc.add_heading(m.title.strip(), 0)
     meta_para = doc.add_paragraph(
         f"Version {m.version}  |  {m.author or 'Unknown'}  |  {m.date}  |  "
         f"{m.difficulty.capitalize()}  |  {m.lab_duration_minutes} min"
     )
-    meta_para.style = doc.styles["Caption"]
+    try:
+        meta_para.style = doc.styles["Caption"]
+    except Exception:
+        pass
 
     if m.prerequisites:
         doc.add_heading("Prerequisites", 2)
-        for p in m.prerequisites:
-            doc.add_paragraph(p, style="List Bullet")
+        for prereq in m.prerequisites:
+            doc.add_paragraph(prereq, style="List Bullet")
 
     if guide.introduction:
         doc.add_heading("Introduction", 1)
@@ -652,14 +1035,14 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
         for step in sec.steps:
             doc.add_heading(f"Step {step.order}: {step.title}", 2)
             if step.instruction and step.instruction.strip():
-                instr_text = _to_plain(step.instruction)
-                for chunk in instr_text.split("\n\n"):
-                    chunk = chunk.strip()
-                    if chunk:
-                        doc.add_paragraph(chunk)
+                _add_html_content(step.instruction)
+
             for cb in step.code_blocks:
                 p = doc.add_paragraph(cb)
-                p.style = doc.styles.get("Code") or doc.styles["Normal"]
+                _shade_paragraph(p, RGBColor(0xF4, 0xF4, 0xF4))
+                for run in p.runs:
+                    run.font.name = "Courier New"
+                    run.font.size = Pt(8)
 
             step_blocks = getattr(step, "blocks", []) or []
             if step_blocks:
@@ -668,7 +1051,6 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
                 for ss in step.screenshots:
                     _add_screenshot(ss.path)
 
-            # Legacy dedicated fields
             if getattr(step, "expected_result", ""):
                 _add_callout("expected_result", step.expected_result)
             if getattr(step, "notes", ""):
@@ -791,6 +1173,50 @@ _EXTRA_CSS = """\
     --md-typeset-a-color: #3a7fff;
     --md-accent-fg-color: #00bdeb;
 }
+
+/* ── Team Challenge custom admonition ── */
+:root {
+    --md-admonition-icon--team-challenge: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 0 0 .95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 0 0-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 0 0-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 0 0-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 0 0 .951-.69l1.519-4.674z"/></svg>');
+}
+.md-typeset .admonition.team-challenge,
+.md-typeset details.team-challenge {
+    border-color: #f59e0b;
+    background-color: #fffbeb;
+}
+[data-md-color-scheme="slate"] .md-typeset .admonition.team-challenge,
+[data-md-color-scheme="slate"] .md-typeset details.team-challenge {
+    background-color: #2a1f00;
+}
+.md-typeset .team-challenge > .admonition-title,
+.md-typeset .team-challenge > summary {
+    background-color: rgba(245, 158, 11, 0.15);
+    border-color: #f59e0b;
+    color: #b45309;
+}
+[data-md-color-scheme="slate"] .md-typeset .team-challenge > .admonition-title,
+[data-md-color-scheme="slate"] .md-typeset .team-challenge > summary {
+    color: #fcd34d;
+}
+.md-typeset .team-challenge > .admonition-title::before,
+.md-typeset .team-challenge > summary::before {
+    background-color: #f59e0b;
+    -webkit-mask-image: var(--md-admonition-icon--team-challenge);
+    mask-image: var(--md-admonition-icon--team-challenge);
+}
+
+/* ── Code block sizing — keep long prompts readable and contained ── */
+.md-typeset pre {
+    font-size: .65rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: none !important;
+    overflow-y: visible !important;
+    overflow-x: visible !important;
+}
+.md-typeset code {
+    font-size: .68rem;
+}
 """
 
 _HOME_HTML = """\
@@ -888,26 +1314,38 @@ jobs:
 _REFERENCE_ASSETS_REPO = "https://github.com/ciscodocs/ltrxar-3783-tech-elevate-fy26.git"
 
 _CALLOUT_ADMONITION = {
-    "expected_result": ('success', "Expected Result"),
-    "note":            ('info',    "Note"),
-    "caution":         ('warning', "Caution"),
-    "congratulations": ('abstract',"Congratulations"),
-    "tip":             ('tip',     "Tip"),
+    "expected_result": ('success',  "Expected Result"),
+    "note":            ('info',     "Note"),
+    "caution":         ('warning',  "Caution"),
+    "congratulations": ('abstract', "Congratulations"),
+    "tip":             ('tip',      "Tip"),
+    "team_challenge":  ('team-challenge', "🏆 Team Challenge"),
 }
 
 
 def _render_block_mkdocs(blk) -> list[str]:
     """Return MkDocs markdown lines for a single ContentBlock."""
     lines: list[str] = []
+    if blk.type == "divider":
+        lines += ["---", ""]
     if blk.type == "text" and blk.content:
-        lines += [_html_to_md(blk.content), ""]
+        content = blk.content
+        # If content is pre-rendered Markdown (marked with <!--markdown-->), pass through as-is
+        if content.startswith("<!--markdown-->"):
+            lines += [content[len("<!--markdown-->"):].lstrip("\n"), ""]
+        else:
+            lines += [_html_to_md(content), ""]
     elif blk.type == "screenshot" and blk.path:
         fname = Path(blk.path).name
         lines += [f"![](../screenshots/{fname})", ""]
     elif blk.type == "callout":
         kind, title = _CALLOUT_ADMONITION.get(blk.callout_type, ("note", blk.callout_type))
+        if getattr(blk, "caption", "") and blk.caption.strip():
+            title = blk.caption
         body = _html_to_md(blk.content or "")
-        lines += [f'!!! {kind} "{title}"', f'    {body}', ""]
+        # Every line must be indented 4 spaces for MkDocs admonition to contain it
+        indented = "\n".join("    " + line if line.strip() else "" for line in body.splitlines())
+        lines += [f'!!! {kind} "{title}"', indented, ""]
     return lines
 
 

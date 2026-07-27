@@ -47,7 +47,7 @@ class LabStep(BaseModel):
 class ContentBlock(BaseModel):
     """An ordered content block inside a section or step."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    type: Literal["text", "screenshot", "callout"] = "text"
+    type: Literal["text", "screenshot", "callout", "divider"] = "text"
     content: str = ""         # markdown text (type=text or callout)
     callout_type: str = ""    # expected_result | note | caution | congratulations | tip
     path: str = ""            # filename (type=screenshot)
@@ -56,6 +56,7 @@ class ContentBlock(BaseModel):
 
 class LabSection(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    order: int = 0
     title: str
     overview: str = ""
     screenshots: list[StepScreenshot] = []   # legacy — superseded by blocks

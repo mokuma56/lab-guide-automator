@@ -8,7 +8,19 @@ venv/
 dist/
 build/
 .DS_Store
+
+# Lab Guide Automator — runtime data (not shared)
 data/exports/
 data/sessions/
 data/uploads/
+data/guides/
+data/screenshots/
+
+# Certs and secrets
 certs/
+
+# Lock file from temp Word doc
+~$*.docx
+
+# Generated docs
+Lab_Guide_Automator_User_Guide.docx
