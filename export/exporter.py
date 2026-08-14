@@ -1728,8 +1728,15 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
         # so create an empty commit to generate a new push event.
         _git("commit", "--allow-empty", "-m", f"Trigger deploy — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # ── Push ────────────────────────────────────────────────────
-    _git("push", "-u", "--force", "origin", branch)
+    # ── Push (retry with re-fetch on stale info) ────────────────
+    for _attempt in range(3):
+        result = _git("push", "-u", "--force", "origin", branch, check=False)
+        if result.returncode == 0:
+            break
+        # Stale tracking info — re-fetch and retry
+        _git("fetch", "origin", check=False)
+    else:
+        raise subprocess.CalledProcessError(result.returncode, "git push", result.stderr)
     return f"Pushed to {repo_url} ({branch})"
 
 
