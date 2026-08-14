@@ -39,7 +39,7 @@ def _md_to_html(text: str) -> str:
     def inline(s: str) -> str:
         s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
         s = re.sub(r'\*(.+?)\*', r'<em>\1</em>', s)
-        s = re.sub(r'\[(.+?)\]\((https?://[^\)]+)\)', r'<a href="\2">\1</a>', s)
+        s = re.sub(r'\[(.+?)\]\(([^\)]+)\)', r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>', s)
         s = re.sub(r'`(.+?)`', r'<code>\1</code>', s)
         return s
 
@@ -85,6 +85,16 @@ def _md_to_html(text: str) -> str:
 
     close_lists()
     return "\n".join(out)
+
+
+def _add_link_targets(html: str) -> str:
+    """Inject target="_blank" rel="noopener noreferrer" into every <a> tag that lacks it."""
+    def _patch(m: re.Match) -> str:
+        tag = m.group(0)
+        if 'target=' not in tag:
+            tag = tag.rstrip('>').rstrip('/') + ' target="_blank" rel="noopener noreferrer">'
+        return tag
+    return re.sub(r'<a\s[^>]*>', _patch, html, flags=re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +452,7 @@ def _render_block_html(blk, embed: bool = False) -> str:
     import base64
     if blk.type == "text" and blk.content:
         # content is already Quill-generated HTML — return as-is, no extra <p> wrap
-        return blk.content
+        return _add_link_targets(blk.content)
     elif blk.type == "screenshot" and blk.path:
         p = _resolve_screenshot_path(blk.path)
         if embed and p.exists():
@@ -522,7 +532,7 @@ def render_html(guide: LabGuide, embed_screenshots: bool = False) -> str:
                 instr = step.instruction.strip()
                 # Already HTML from Quill — output raw; plain text → convert markdown
                 if instr.startswith("<"):
-                    parts.append(instr)
+                    parts.append(_add_link_targets(instr))
                 else:
                     parts.append(_md_to_html(instr))
             for cb in step.code_blocks:
@@ -1217,6 +1227,58 @@ _EXTRA_CSS = """\
 .md-typeset code {
     font-size: .68rem;
 }
+
+/* ── Callout admonition emoji animations ── */
+@keyframes callout-pulse  { 0%,100%{opacity:1;transform:scale(1)}    50%{opacity:.4;transform:scale(.85)} }
+@keyframes callout-shake  { 0%,100%{transform:rotate(0)}  20%{transform:rotate(-15deg)}  40%{transform:rotate(15deg)}  60%{transform:rotate(-10deg)}  80%{transform:rotate(10deg)} }
+@keyframes callout-bounce { 0%,100%{transform:translateY(0)}  40%{transform:translateY(-5px)}  60%{transform:translateY(-2px)} }
+@keyframes callout-spin   { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+@keyframes callout-pop    { 0%,100%{transform:scale(1)}  50%{transform:scale(1.35)} }
+@keyframes callout-wobble { 0%,100%{transform:rotate(0) scale(1)}  25%{transform:rotate(-8deg) scale(1.1)}  75%{transform:rotate(8deg) scale(1.1)} }
+
+.md-typeset .admonition.note > .admonition-title::before,
+.md-typeset .admonition.info > .admonition-title::before
+  { animation: callout-bounce 2.2s ease-in-out infinite; }
+
+.md-typeset .admonition.warning > .admonition-title::before,
+.md-typeset .admonition.caution > .admonition-title::before
+  { animation: callout-shake 2.0s ease-in-out infinite; }
+
+.md-typeset .admonition.success > .admonition-title::before,
+.md-typeset .admonition.check > .admonition-title::before
+  { animation: callout-pulse 1.8s ease-in-out infinite; }
+
+.md-typeset .admonition.abstract > .admonition-title::before
+  { animation: callout-pop 1.5s ease-in-out infinite; }
+
+.md-typeset .admonition.tip > .admonition-title::before,
+.md-typeset .admonition.hint > .admonition-title::before
+  { animation: callout-spin 3.0s linear infinite; }
+
+.md-typeset .admonition.team-challenge > .admonition-title::before
+  { animation: callout-wobble 1.8s ease-in-out infinite; }
+
+/* ── Hide right-hand TOC sidebar, expand content area ── */
+.md-sidebar--secondary,
+.md-sidebar--secondary * {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+}
+.md-content {
+    max-width: none !important;
+    margin-right: 0 !important;
+}
+@media screen and (min-width: 60em) {
+    .md-content {
+        margin-right: 0 !important;
+    }
+}
+@media screen and (min-width: 76.25em) {
+    .md-content {
+        margin-right: 0 !important;
+    }
+}
 """
 
 _HOME_HTML = """\
@@ -1454,8 +1516,15 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
                 lines += [f"![](../screenshots/{fname})", ""]
 
         for step in sec.steps:
-            lines += [f"## Step {step.order}: {step.title}", ""]
-            lines += [_html_to_md(step.instruction), ""]
+            # Skip "Step N:" prefix for appendix sections
+            is_appendix = "appendix" in sec.title.lower()
+            step_heading = step.title if is_appendix else f"Step {step.order}: {step.title}"
+            lines += [f"## {step_heading}", ""]
+            _instr = step.instruction or ""
+            if _instr.strip().startswith("<!--markdown-->"):
+                lines += [_instr.strip()[len("<!--markdown-->"):].lstrip("\n"), ""]
+            else:
+                lines += [_html_to_md(_instr), ""]
             for cb in step.code_blocks:
                 lines += ["```", cb, "```", ""]
 
@@ -1616,11 +1685,15 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
         if not r.stdout.strip():
             _git("config", key, val)
 
-    # ── Stage + commit if anything changed ──────────────────────
+    # ── Stage + commit (always, so GitHub receives a push event for Actions) ──
     _git("add", "-A")
     status = _git("status", "--porcelain")
     if status.stdout.strip():
         _git("commit", "-m", f"Update lab guide — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    else:
+        # Nothing changed in content but we still need to trigger GitHub Actions,
+        # so create an empty commit to generate a new push event.
+        _git("commit", "--allow-empty", "-m", f"Trigger deploy — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # ── Push ────────────────────────────────────────────────────
     _git("push", "-u", "--force-with-lease", "origin", branch)
