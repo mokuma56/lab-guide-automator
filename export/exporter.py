@@ -1635,9 +1635,12 @@ def _write_brand_assets(docs_dir: Path) -> None:
     (docs_dir / "overrides").mkdir(exist_ok=True)
     (docs_dir / "overrides" / "home.html").write_text(_HOME_HTML)
 
-    # Template assets — copy from cached reference clone if available,
-    # otherwise copy from the local export that already has them
-    asset_src = Path("/tmp/ltrxar-3783/docs/template_assets")
+    # Template assets — try multiple source locations in priority order
+    _ASSET_SEARCH_PATHS = [
+        Path("/tmp/ltrxar-3783/docs/template_assets"),
+        Path("/Users/maokuma/Documents/CODE/ltrxar-3783-clamer25/docs/template_assets"),
+        Path("/Users/maokuma/sw_projects/lab_guide_automator/data/exports/84ff424d-ec65-4579-8be3-b9b7101bf6ea-mkdocs/docs/template_assets"),
+    ]
     asset_dst = docs_dir / "template_assets"
     asset_dst.mkdir(exist_ok=True)
     needed = [
@@ -1646,10 +1649,14 @@ def _write_brand_assets(docs_dir: Path) -> None:
         "CLAMER2025_Static_Midnight_Generic.png",
     ]
     for fname in needed:
-        src = asset_src / fname
         dst = asset_dst / fname
-        if src.exists() and not dst.exists():
-            shutil.copy2(src, dst)
+        if dst.exists():
+            continue
+        for search_path in _ASSET_SEARCH_PATHS:
+            src = search_path / fname
+            if src.exists():
+                shutil.copy2(src, dst)
+                break
 
 
 def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") -> str:
