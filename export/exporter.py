@@ -1679,7 +1679,16 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
         )
 
     git_dir = output_dir / ".git"
+    # Check that .git belongs to output_dir itself, not a parent repo
     is_fresh = not git_dir.exists()
+    if not is_fresh:
+        # Verify this git repo is rooted at output_dir, not a parent
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=output_dir, capture_output=True, text=True
+        )
+        if result.stdout.strip() != str(output_dir.resolve()):
+            is_fresh = True  # parent repo — treat as fresh, init our own
 
     # ── Init if needed ──────────────────────────────────────────
     if is_fresh:
