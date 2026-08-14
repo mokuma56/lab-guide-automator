@@ -1120,6 +1120,8 @@ extra:
   generator: false
 extra_css:
   - stylesheets/extra.css
+extra_javascript:
+  - javascripts/links.js
 plugins:
   - search
   - glightbox:
@@ -1461,7 +1463,7 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
 
     # Compute current slugs so we only keep them + reserved dirs
     current_slugs = {slugify(sec.title) for sec in guide.sections}
-    reserved_dirs = {"screenshots", "stylesheets", "overrides", "template_assets", "introduction", "conclusion"}
+    reserved_dirs = {"screenshots", "stylesheets", "overrides", "template_assets", "introduction", "conclusion", "javascripts"}
     for child in list(docs_dir.iterdir()):
         if child.is_dir() and child.name not in reserved_dirs and child.name not in current_slugs:
             _shutil_clean.rmtree(child)
@@ -1615,6 +1617,19 @@ def _write_brand_assets(docs_dir: Path) -> None:
     # Stylesheets
     (docs_dir / "stylesheets").mkdir(exist_ok=True)
     (docs_dir / "stylesheets" / "extra.css").write_text(_EXTRA_CSS)
+
+    # Javascripts
+    (docs_dir / "javascripts").mkdir(exist_ok=True)
+    (docs_dir / "javascripts" / "links.js").write_text(
+        "document.addEventListener('DOMContentLoaded', function () {\n"
+        "  document.querySelectorAll('a[href]').forEach(function (a) {\n"
+        "    if (!a.getAttribute('target')) {\n"
+        "      a.setAttribute('target', '_blank');\n"
+        "      a.setAttribute('rel', 'noopener noreferrer');\n"
+        "    }\n"
+        "  });\n"
+        "});\n"
+    )
 
     # Overrides
     (docs_dir / "overrides").mkdir(exist_ok=True)
