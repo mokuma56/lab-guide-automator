@@ -1709,6 +1709,8 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
             _git("remote", "add", "origin", auth_url)
         else:
             _git("remote", "set-url", "origin", auth_url)
+        # Always fetch so --force-with-lease has current ref tracking info
+        _git("fetch", "origin", check=False)
 
     # ── Ensure a git identity exists (local fallback) ───────────
     for key, val in [("user.email", "lab-guide@localhost"), ("user.name", "Lab Guide Automator")]:
