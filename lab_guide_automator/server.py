@@ -75,7 +75,7 @@ _loaded_guides: dict[str, LabGuide] = {}   # guide_id → LabGuide
 def _data_dir() -> Path:
     d = settings.data_dir
     if not d.is_absolute():
-        d = Path(__file__).parent / d
+        d = Path(__file__).parent.parent / d
     d.mkdir(parents=True, exist_ok=True)
     return d
 
