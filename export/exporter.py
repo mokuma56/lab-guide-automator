@@ -1729,7 +1729,7 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
         _git("commit", "--allow-empty", "-m", f"Trigger deploy — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # ── Push ────────────────────────────────────────────────────
-    _git("push", "-u", "--force-with-lease", "origin", branch)
+    _git("push", "-u", "--force", "origin", branch)
     return f"Pushed to {repo_url} ({branch})"
 
 
