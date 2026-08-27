@@ -2268,7 +2268,11 @@ def api_section_block_update(guide_id, section_id, block_id):
     if not block:
         return jsonify({"error": "Block not found"}), 404
     if "content" in data:
-        block.content = data["content"]
+        # Preserve <!--markdown--> blocks — never overwrite with Quill HTML
+        if block.content.startswith("<!--markdown-->") and not data["content"].startswith("<!--markdown-->"):
+            pass  # ignore the overwrite attempt
+        else:
+            block.content = data["content"]
     if "caption" in data:
         block.caption = data["caption"]
     g.touch()
@@ -2277,7 +2281,7 @@ def api_section_block_update(guide_id, section_id, block_id):
 
 
 @app.route("/api/guides/<guide_id>/section/<section_id>/blocks/<block_id>", methods=["DELETE"])
-def api_section_block_delete(guide_id, section_id, block_id):
+def api_delete_section_block(guide_id, section_id, block_id):
     g = _load_guide(guide_id)
     sec = g.get_section(section_id)
     if not sec:
@@ -2373,7 +2377,10 @@ def api_step_block_update(guide_id, step_id, block_id):
     data = request.json or {}
     for field in ["content", "path", "caption"]:
         if field in data:
-            setattr(block, field, data[field])
+            if field == "content" and block.content.startswith("<!--markdown-->") and not data["content"].startswith("<!--markdown-->"):
+                pass  # preserve <!--markdown--> blocks from Quill overwrite
+            else:
+                setattr(block, field, data[field])
     g.touch(); _save_guide(g)
     return jsonify(block.model_dump())
 
@@ -3035,6 +3042,22 @@ def _render_html() -> str:
   .callout-block .callout-content p:last-child { margin-bottom: 0; }
   .callout-block .callout-actions { position: absolute; top: .35rem; right: .4rem; display: flex; gap: .3rem; opacity: 0; transition: opacity .15s; }
   .callout-block:hover .callout-actions { opacity: 1; }
+
+  /* ── Callout emoji animations ── */
+  @keyframes callout-pulse    { 0%,100%{opacity:1;transform:scale(1)}    50%{opacity:.4;transform:scale(.85)} }
+  @keyframes callout-shake    { 0%,100%{transform:rotate(0)}  20%{transform:rotate(-15deg)}  40%{transform:rotate(15deg)}  60%{transform:rotate(-10deg)}  80%{transform:rotate(10deg)} }
+  @keyframes callout-bounce   { 0%,100%{transform:translateY(0)}  40%{transform:translateY(-6px)}  60%{transform:translateY(-3px)} }
+  @keyframes callout-spin     { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+  @keyframes callout-pop      { 0%,100%{transform:scale(1)}  50%{transform:scale(1.35)} }
+  @keyframes callout-wobble   { 0%,100%{transform:rotate(0) scale(1)}  25%{transform:rotate(-8deg) scale(1.1)}  75%{transform:rotate(8deg) scale(1.1)} }
+
+  .callout-emoji { display:inline-block; }
+  .callout-expected  .callout-emoji { animation: callout-pulse  1.8s ease-in-out infinite; }
+  .callout-note      .callout-emoji { animation: callout-bounce 2.2s ease-in-out infinite; }
+  .callout-caution   .callout-emoji { animation: callout-shake  2.0s ease-in-out infinite; }
+  .callout-congrats  .callout-emoji { animation: callout-pop    1.5s ease-in-out infinite; }
+  .callout-tip       .callout-emoji { animation: callout-spin   3.0s linear infinite; }
+  .callout-challenge .callout-emoji { animation: callout-wobble 1.8s ease-in-out infinite; }
   .callout-expected  { background: #0d2a12; border-color: #3fb950; color: #7ee787; }
   .callout-note      { background: #0d1f3a; border-color: #388bfd; color: #79c0ff; }
   .callout-caution   { background: #2a1800; border-color: #e3700a; color: #f0a04a; }
@@ -4142,7 +4165,7 @@ function renderSections() {
 
       <div class="sec-overview-row" id="sec-overview-row-${sec.id}">
         <span class="sec-overview-text" id="sec-overview-text-${sec.id}">${sec.overview || '<em style="color:var(--text2)">No overview — click Edit to add one</em>'}</span>
-        <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="secOverviewEdit('${sec.id}','${(sec.overview||'').replace(/'/g,"\\'")}')">Edit</button>
+        <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="secOverviewEdit('${sec.id}')">Edit</button>
       </div>
       <div id="sec-overview-edit-${sec.id}" style="display:none;padding:.4rem .75rem;border-bottom:1px solid var(--border)">
         <textarea id="sec-overview-ta-${sec.id}" rows="2" style="width:100%;margin-bottom:.35rem;font-size:.83rem"></textarea>
@@ -4312,9 +4335,10 @@ async function secTitleSave(sectionId) {
   if (sec) sec.title = newTitle;
 }
 
-function secOverviewEdit(sectionId, current) {
+function secOverviewEdit(sectionId) {
   const ta = document.getElementById('sec-overview-ta-' + sectionId);
-  ta.value = current;
+  const sec = currentGuide.sections.find(s => s.id === sectionId);
+  ta.value = sec ? (sec.overview || '') : '';
   document.getElementById('sec-overview-row-' + sectionId).style.display = 'none';
   document.getElementById('sec-overview-edit-' + sectionId).style.display = 'block';
   ta.focus();
@@ -4434,21 +4458,33 @@ function renderStepBlock(stepId, block) {
 
 function _calloutMeta(calloutType) {
   const map = {
-    expected_result:  {css: 'callout-expected',  label: '✅ Expected Result'},
-    note:             {css: 'callout-note',       label: '📝 Note'},
-    caution:          {css: 'callout-caution',    label: '⚠️ Caution'},
-    congratulations:  {css: 'callout-congrats',   label: '🎉 Congratulations'},
-    tip:              {css: 'callout-tip',         label: '💡 Tip'},
-    team_challenge:   {css: 'callout-challenge',  label: '🏆 Team Challenge'},
+    expected_result:  {css: 'callout-expected',  label: '✅', text: 'Expected Result'},
+    note:             {css: 'callout-note',       label: '📝', text: 'Note'},
+    caution:          {css: 'callout-caution',    label: '⚠️', text: 'Caution'},
+    congratulations:  {css: 'callout-congrats',   label: '🎉', text: 'Congratulations'},
+    tip:              {css: 'callout-tip',         label: '💡', text: 'Tip'},
+    team_challenge:   {css: 'callout-challenge',  label: '🏆', text: 'Team Challenge'},
   };
-  return map[calloutType] || {css: 'callout-note', label: calloutType};
+  return map[calloutType] || {css: 'callout-note', label: '📝', text: calloutType};
 }
 
 function renderCalloutBlock(block, deleteHandler, editHandler) {
-  const {css, label} = _calloutMeta(block.callout_type);
-  const displayLabel = block.caption && block.caption.trim() ? block.caption : label;
+  const {css, label, text} = _calloutMeta(block.callout_type);
+  const rawCaption = block.caption && block.caption.trim() ? block.caption : null;
+  // Split caption into emoji + rest if it starts with an emoji
+  let displayEmoji = label;
+  let displayText = rawCaption || text;
+  if (rawCaption) {
+    // If caption has our emoji already, use it as-is but still animate
+    const emojiMatch = rawCaption.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u);
+    if (emojiMatch) {
+      displayEmoji = emojiMatch[0].trim();
+      displayText = rawCaption.slice(emojiMatch[0].length).trim();
+    }
+  }
+  const animatedLabel = `<span class="callout-emoji">${displayEmoji}</span> ${displayText}`;
   return `<div class="callout-block ${css}" id="callout-block-${block.id}">
-    <div class="callout-label">${displayLabel}</div>
+    <div class="callout-label">${animatedLabel}</div>
     <div class="callout-content" id="callout-content-${block.id}">${block.content || '<em style="opacity:.6">Click ✎ to add text</em>'}</div>
     <div class="callout-edit-panel" id="callout-edit-${block.id}" style="display:none;margin-top:.5rem">
       <div class="quill-host" id="callout-qhost-${block.id}"></div>

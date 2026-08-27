@@ -24,42 +24,33 @@
       "API credentials for the third-party tools you want to connect (see Appendix A)"
     ]
   },
-  "introduction": "## The Vision: Cisco Cloud Control\n\nEnterprise IT runs on specialized products, each built to solve a different operational challenge. Cisco has spent decades building deep capabilities across networking, security, compute, observability, and collaboration. That depth matters — but the hardest operational problems rarely stay within one product or IT domain. Issues spill across boundaries, context gets lost, and teams spend more time coordinating than resolving.\n\nCisco Cloud Control was built to change that. It connects the full Cisco estate and third-party systems into one unified operational environment, giving teams a single place to manage infrastructure, carry context across products, and move from issue to resolution — without giving up the specialized tools they already rely on.\n\nAs AI agents become a practical part of IT operations, teams will increasingly work alongside agents that investigate issues, recommend changes, and take action. This new operating model is **AgenticOps**. Cisco Cloud Control is the platform that makes it practical — providing the trusted access, live operational context, authorized tools, and safeguards that agents need to act with confidence.\n\nBuilt on this foundation, **AI Canvas** brings operators and AI agents together to investigate and resolve cross-domain issues in real time. **Agent Builder** lets organizations build their own custom agents, encode their expertise, and connect the tools they already use — such as ServiceNow, Meraki, and more.\n\nCisco Cloud Control delivers three foundational capabilities:\n\n- **Manage** — One control plane to manage the Cisco estate and connected third-party systems.\n- **Resolve** — Find and fix issues across products and IT domains with shared operational context.\n- **Extend** — Build custom apps and agents, connect existing tools, and add Cisco and ecosystem capabilities.\n\n---\n\n## What You Will Do in This Lab\n\nIn this hands-on lab you will experience Cisco Cloud Control end-to-end across its key platform areas:\n\n1. **Explore the Lab and Cloud Control Capabilities** — Navigate Cisco Cloud Control and understand its capabilities across Platform Services, getting familiar with the unified operational environment.\n\n2. **Experience the Agentic AI Canvas** — Work with the AI Canvas to see how operators and AI agents collaborate to investigate and resolve cross-domain issues across your infrastructure.\n\n3. **Build an Agent with Agent Builder** — Leverage a ServiceNow integration to construct a working AI agent from scratch, defining its tools, context, and behavior.\n\n4. **Troubleshoot a Network Issue** — Diagnose and resolve a connectivity problem between the two switches in your POD, using the platform's operational context to identify root cause and take action.",
+  "introduction": "## The Vision: Cisco Cloud Control\n\nEnterprise IT runs on specialized products, each built to solve a different operational challenge. Cisco has spent decades building deep capabilities across networking, security, compute, observability, and collaboration. That depth matters — but the hardest operational problems rarely stay within one product or IT domain. Issues spill across boundaries, context gets lost, and teams spend more time coordinating than resolving.\n\nCisco Cloud Control was built to change that. It connects the full Cisco estate and third-party systems into one unified operational environment, giving teams a single place to manage infrastructure, carry context across products, and move from issue to resolution — without giving up the specialized tools they already rely on.\n\nAs AI agents become a practical part of IT operations, teams will increasingly work alongside agents that investigate issues, recommend changes, and take action. This new operating model is **AgenticOps**. Cisco Cloud Control is the platform that makes it practical — providing the trusted access, live operational context, authorized tools, and safeguards that agents need to act with confidence.\n\nBuilt on this foundation, **AI Canvas** brings operators and AI agents together to investigate and resolve cross-domain issues in real time. **Agent Builder** lets organizations build their own custom agents, encode their expertise, and connect the tools they already use — such as ServiceNow, Meraki, and more.\n\nCisco Cloud Control delivers three foundational capabilities:\n\n- **Manage** — One control plane to manage the Cisco estate and connected third-party systems.\n- **Resolve** — Find and fix issues across products and IT domains with shared operational context.\n- **Extend** — Build custom apps and agents, connect existing tools, and add Cisco and ecosystem capabilities.\n\n---\n\n## What You Will Do in This Lab\n\nIn this hands-on lab you will experience Cisco Cloud Control end-to-end across its key platform areas:\n\n1. **Explore the Lab and Cloud Control Capabilities** — Navigate Cisco Cloud Control and understand its capabilities across Platform Services, getting familiar with the unified operational environment.\n\n2. **Experience the Agentic AI Canvas** — Work with the AI Canvas to see how operators and AI agents collaborate to investigate and resolve cross-domain issues across your infrastructure.\n\n3. **Build an Agent with Agent Builder** — Build a working AI agent from scratch, defining its tools, context, and behavior.\n\n4. **Team Challenge** — Work as a team on two team challenge scenarios based on what was learned in the lab. ",
   "learning_objectives": [
     {
-      "id": "3b2f9850",
-      "text": "Navigate to Agent Builder via the Cloud Control Studio interface",
-      "bloom_level": "remember"
+      "id": "ae7f5048",
+      "text": "Learn the  use of Cloud Control capabilities",
+      "bloom_level": "understand"
     },
     {
-      "id": "65534209",
-      "text": "Configure third-party integrations (ServiceNow, Atlassian, Infoblox, BlueCat) in Admin Console",
-      "bloom_level": "apply"
-    },
-    {
-      "id": "3b81b0c9",
-      "text": "Verify integration connections and use them in AI Canvas with natural language queries",
-      "bloom_level": "apply"
+      "id": "60b17aff",
+      "text": "Learn the Agentic AI Canvas capabilities within Cloud Control",
+      "bloom_level": "understand"
     },
     {
       "id": "f0208951",
-      "text": "Create an autonomous agent with a profile, trigger, and cadence",
+      "text": "Create and test an Ambient agent with a profile, trigger, and cadence",
+      "bloom_level": "create"
+    },
+    {
+      "id": "5c74d322",
+      "text": "[Optional Challenge] Students will collaborate and share effective AI prompts to generate a RCA (root cause analysis) using AI Canvas tools. The outcome of this challenge will help participants to deliver more effective demos using dCloud",
       "bloom_level": "apply"
-    },
-    {
-      "id": "9d19d5e2",
-      "text": "Test an agent using the Test tab before promoting to production",
-      "bloom_level": "evaluate"
-    },
-    {
-      "id": "7bf6a0e3",
-      "text": "Promote, monitor, and manage agent versions in production",
-      "bloom_level": "analyze"
     }
   ],
   "sections": [
     {
       "id": "61822619",
+      "order": 1,
       "title": "Section 1: Explore the LAB and Cloud Control Capabilities",
       "overview": "In this section, you will discover how Cloud Control streamlines the management of your cloud infrastructure through a centralized interface. You'll gain hands-on experience with its core monitoring, automation, and governance features to understand how they work together to simplify operations at scale.",
       "screenshots": [],
@@ -69,7 +60,7 @@
           "id": "89d2b75d",
           "order": 1,
           "title": "Lab and Topoloy  Overview",
-          "instruction": "<p>Review the assigned lab POD and network topology diagram provided in your lab guide. Note your POD number, device hostnames, IP addressing scheme, and the interconnections between devices, as these will be referenced throughout this lab.</p>",
+          "instruction": "<p></p>",
           "expected_result": "",
           "notes": "",
           "screenshots": [
@@ -81,12 +72,52 @@
           ],
           "blocks": [
             {
-              "id": "372202d3",
-              "type": "screenshot",
+              "id": "9559f0c8",
+              "type": "callout",
+              "content": "<p>This&nbsp;lab&nbsp;is&nbsp;based&nbsp;on&nbsp;the&nbsp;dCloud&nbsp;<strong>&quot;Cisco&nbsp;Cloud&nbsp;Control:&nbsp;AgenticOps&nbsp;in&nbsp;Action&quot;</strong>&nbsp;experience.&nbsp;Your&nbsp;assigned&nbsp;login&nbsp;has&nbsp;been&nbsp;provisioned&nbsp;with&nbsp;elevated&nbsp;permissions&nbsp;that&nbsp;unlock&nbsp;advanced&nbsp;capabilities&nbsp;beyond&nbsp;the&nbsp;standard&nbsp;dCloud&nbsp;environment&nbsp;—&nbsp;most&nbsp;notably&nbsp;<strong>Agent&nbsp;Studio.</strong></p><p></p><p>These&nbsp;special&nbsp;permissions&nbsp;allow&nbsp;you&nbsp;to&nbsp;build,&nbsp;test,&nbsp;and&nbsp;deploy&nbsp;agentic&nbsp;workflows&nbsp;across&nbsp;the&nbsp;Cisco&nbsp;Cloud&nbsp;Control&nbsp;platform&nbsp;in&nbsp;ways&nbsp;that&nbsp;reflect&nbsp;real-world&nbsp;production&nbsp;use&nbsp;cases.&nbsp;Throughout&nbsp;this&nbsp;lab,&nbsp;you&nbsp;will&nbsp;move&nbsp;from&nbsp;exploration&nbsp;to&nbsp;hands-on&nbsp;creation,&nbsp;gaining&nbsp;practical&nbsp;experience&nbsp;with&nbsp;the&nbsp;tools&nbsp;and&nbsp;services&nbsp;that&nbsp;power&nbsp;Cisco&#39;s&nbsp;Agentic&nbsp;Operations&nbsp;framework.</p>",
+              "callout_type": "note",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "79de87af",
+              "type": "divider",
               "content": "",
               "callout_type": "",
-              "path": "163398b6dc.png",
-              "caption": "163398b6dc.png"
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "4355aeac",
+              "type": "text",
+              "content": "<h2>Lab&nbsp;Topology</h2><p>Your&nbsp;lab&nbsp;environment&nbsp;is&nbsp;pre-integrated&nbsp;with&nbsp;a&nbsp;broad&nbsp;set&nbsp;of&nbsp;Cisco&nbsp;platforms&nbsp;and&nbsp;services.&nbsp;The&nbsp;topology&nbsp;reflects&nbsp;a&nbsp;realistic&nbsp;enterprise&nbsp;deployment,&nbsp;giving&nbsp;you&nbsp;visibility&nbsp;and&nbsp;control&nbsp;across&nbsp;networking,&nbsp;security,&nbsp;cloud,&nbsp;and&nbsp;collaboration&nbsp;domains.</p><p>The&nbsp;following&nbsp;products&nbsp;and&nbsp;controllers&nbsp;are&nbsp;available&nbsp;in&nbsp;your&nbsp;environment:</p><ul><li><strong>Cisco&nbsp;Security&nbsp;Cloud&nbsp;Control</strong>&nbsp;—&nbsp;The&nbsp;unified&nbsp;management&nbsp;plane&nbsp;that&nbsp;ties&nbsp;all&nbsp;security&nbsp;services&nbsp;together.&nbsp;</li><li><strong>AI&nbsp;Defense</strong>&nbsp;—&nbsp;Provides&nbsp;AI-powered&nbsp;threat&nbsp;detection&nbsp;and&nbsp;policy&nbsp;enforcement&nbsp;across&nbsp;your&nbsp;environment.</li><li><strong>Multicloud&nbsp;Defense</strong>&nbsp;—&nbsp;Delivers&nbsp;consistent&nbsp;security&nbsp;policy&nbsp;and&nbsp;visibility&nbsp;across&nbsp;multiple&nbsp;cloud&nbsp;providers.</li><li><strong>Secure&nbsp;Access</strong>&nbsp;—&nbsp;A&nbsp;cloud-delivered&nbsp;SSE&nbsp;solution&nbsp;combining&nbsp;ZTNA,&nbsp;SWG,&nbsp;CASB,&nbsp;and&nbsp;DNS&nbsp;security.</li><li><strong>Secure&nbsp;Firewall</strong>&nbsp;—&nbsp;Next-generation&nbsp;firewall&nbsp;capabilities&nbsp;managed&nbsp;through&nbsp;the&nbsp;unified&nbsp;control&nbsp;plane.</li><li><strong>Secure&nbsp;Workload</strong>&nbsp;—&nbsp;Provides&nbsp;workload&nbsp;segmentation,&nbsp;micro-segmentation&nbsp;policy,&nbsp;and&nbsp;application&nbsp;dependency&nbsp;mapping.</li><li><strong>Cisco&nbsp;Meraki</strong>&nbsp;—&nbsp;Cloud-managed&nbsp;networking&nbsp;including&nbsp;switching,&nbsp;wireless,&nbsp;and&nbsp;SD-WAN,&nbsp;integrated&nbsp;directly&nbsp;into&nbsp;Cloud&nbsp;Control.</li><li><strong>Nexus&nbsp;Hyperfabric</strong>&nbsp;—&nbsp;A&nbsp;cloud-managed,&nbsp;AI-driven&nbsp;data&nbsp;center&nbsp;fabric&nbsp;solution&nbsp;for&nbsp;simplified&nbsp;network&nbsp;operations.</li><li><strong>Cisco&nbsp;Collaboration&nbsp;Control&nbsp;Hub</strong>&nbsp;<em>(formerly&nbsp;Webex&nbsp;Control&nbsp;Hub)</em>&nbsp;—&nbsp;The&nbsp;administration&nbsp;portal&nbsp;for&nbsp;managing&nbsp;Webex&nbsp;collaboration&nbsp;services,&nbsp;users,&nbsp;and&nbsp;devices&nbsp;at&nbsp;scale.</li></ul><blockquote>Not&nbsp;all&nbsp;products&nbsp;listed&nbsp;above&nbsp;will&nbsp;be&nbsp;actively&nbsp;used&nbsp;in&nbsp;every&nbsp;section&nbsp;of&nbsp;this&nbsp;lab.&nbsp;However,&nbsp;their&nbsp;presence&nbsp;in&nbsp;the&nbsp;topology&nbsp;reflects&nbsp;the&nbsp;breadth&nbsp;of&nbsp;the&nbsp;Cisco&nbsp;Cloud&nbsp;Control&nbsp;platform&nbsp;and&nbsp;the&nbsp;scope&nbsp;of&nbsp;what&nbsp;agentic&nbsp;workflows&nbsp;can&nbsp;reach&nbsp;and&nbsp;act&nbsp;upon.</blockquote>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "fee06d84",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "6dff839c",
+              "type": "callout",
+              "content": "<p>You&nbsp;have&nbsp;been&nbsp;granted&nbsp;elevated&nbsp;permissions&nbsp;necessary&nbsp;to&nbsp;complete&nbsp;the&nbsp;exercises&nbsp;in&nbsp;this&nbsp;lab.&nbsp;With&nbsp;these&nbsp;additional&nbsp;privileges&nbsp;comes&nbsp;an&nbsp;expectation&nbsp;of&nbsp;responsible&nbsp;use.&nbsp;Please&nbsp;confine&nbsp;your&nbsp;activities&nbsp;strictly&nbsp;to&nbsp;the&nbsp;tasks&nbsp;and&nbsp;resources&nbsp;outlined&nbsp;in&nbsp;this&nbsp;lab&nbsp;guide.&nbsp;Unauthorized&nbsp;actions&nbsp;—&nbsp;such&nbsp;as&nbsp;modifying&nbsp;shared&nbsp;infrastructure,&nbsp;accessing&nbsp;resources&nbsp;outside&nbsp;the&nbsp;scope&nbsp;of&nbsp;this&nbsp;lab,&nbsp;or&nbsp;interfering&nbsp;with&nbsp;other&nbsp;participants&#39;&nbsp;environments&nbsp;—&nbsp;can&nbsp;disrupt&nbsp;the&nbsp;experience&nbsp;for&nbsp;everyone.&nbsp;Any&nbsp;actions&nbsp;you&nbsp;take&nbsp;may&nbsp;be&nbsp;logged&nbsp;and&nbsp;audited.&nbsp;Please&nbsp;be&nbsp;a&nbsp;good&nbsp;steward&nbsp;of&nbsp;the&nbsp;shared&nbsp;environment.</p>",
+              "callout_type": "caution",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "4d35f91f",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
             }
           ],
           "code_blocks": [],
@@ -95,8 +126,8 @@
         {
           "id": "514199c7",
           "order": 2,
-          "title": "Logging into your assinged Cloud Control Tenant and exploring the Home Screen",
-          "instruction": "<p>Open a web browser and navigate to <a href=\"https://cloud.cisco.com\" rel=\"noopener noreferrer\" target=\"_blank\"><strong>https://cloud.cisco.com</strong></a>. Enter your provided credentials (username and password) and click <strong>Sign In</strong> to authenticate. Accept any authentication pop-ups.</p><p><strong>NOTE:</strong> If you are unable to locate your POD login credentials, please contact a proctor.</p>",
+          "title": "Logging into with your assigned Cloud Control user and exploring the Home Screen",
+          "instruction": "<p>Open&nbsp;a&nbsp;web&nbsp;browser&nbsp;and&nbsp;navigate&nbsp;to&nbsp;the&nbsp;lab&nbsp;landing&nbsp;page&nbsp;at:&nbsp;<a href=\"https://idac.cat-dcloud.com/api/v2.0/request/stateless/0?owner=dschuema&amp;recipeName=c3-instant-v2-gsx-v2&amp;recipePath=sec/&amp;dc=sjc\" rel=\"noopener noreferrer\" target=\"_blank\">http://cs.co/tedc24-lab</a>&nbsp;&nbsp;(opens&nbsp;in&nbsp;new&nbsp;window)&nbsp;</p>",
           "expected_result": "",
           "notes": "",
           "screenshots": [
@@ -113,17 +144,73 @@
           ],
           "blocks": [
             {
-              "id": "55dccb5c",
+              "id": "4d95aaa5",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "a00c4faf",
+              "type": "text",
+              "content": "<p>Next,&nbsp;<strong>locate&nbsp;</strong>your&nbsp;assigned&nbsp;<strong>POD</strong>&nbsp;and&nbsp;click&nbsp;<strong>Login&nbsp;to&nbsp;POD&nbsp;</strong>to&nbsp;authenticate&nbsp;and&nbsp;log&nbsp;in.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "917dafe8",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "9c88bec0",
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-f706efe4.png",
-              "caption": "capture-f706efe4.png"
+              "path": "d70ee2d9ef.png",
+              "caption": "d70ee2d9ef.png"
+            },
+            {
+              "id": "e9ce5954",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "df50fa24",
+              "type": "callout",
+              "content": "<p>If&nbsp;you&nbsp;are&nbsp;unable&nbsp;to&nbsp;locate&nbsp;your&nbsp;assigned&nbsp;POD,&nbsp;please&nbsp;contact&nbsp;a&nbsp;proctor.&nbsp;Please&nbsp;use&nbsp;caution&nbsp;and&nbsp;verify&nbsp;you&nbsp;are&nbsp;logging&nbsp;into&nbsp;your&nbsp;assigned&nbsp;POD,&nbsp;as&nbsp;this&nbsp;will&nbsp;ensure&nbsp;a&nbsp;successful&nbsp;lab&nbsp;experience&nbsp;for&nbsp;all.</p>",
+              "callout_type": "note",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "634f89e5",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
             },
             {
               "id": "c4eb0fac",
               "type": "text",
-              "content": "<p>After logging in, explore the three sections on the home screen.</p><p>1. <strong>Selected Organization</strong> — If you have access to more than one organization, use this section to switch between them.</p><p>2. <strong>AI Assistant</strong> — Use this natural language interface to interact with the platform. Explore the pre-built prompts and run sample queries. Note that data is limited in this lab environment and results may differ from a production deployment.</p><p>3. <strong>Actions</strong> — Review any actions required in your environment. Take note of what is displayed. These actions can be engaged agentically, which will be covered in detail later in this lab.</p>",
+              "content": "<p>After&nbsp;logging&nbsp;in,&nbsp;explore&nbsp;the&nbsp;three&nbsp;sections&nbsp;on&nbsp;the&nbsp;home&nbsp;screen.</p><p><strong>1.&nbsp;Selected&nbsp;Organization</strong>&nbsp;—&nbsp;If&nbsp;you&nbsp;have&nbsp;access&nbsp;to&nbsp;more&nbsp;than&nbsp;one&nbsp;organization,&nbsp;use&nbsp;this&nbsp;section&nbsp;to&nbsp;switch&nbsp;between&nbsp;them.</p><p><strong>2.</strong>&nbsp;<strong>AI&nbsp;Assistant</strong>&nbsp;—&nbsp;Use&nbsp;this&nbsp;natural&nbsp;language&nbsp;interface&nbsp;to&nbsp;interact&nbsp;with&nbsp;the&nbsp;platform.&nbsp;Explore&nbsp;the&nbsp;pre-built&nbsp;prompts.</p><p><strong>3.&nbsp;Actions</strong>&nbsp;—&nbsp;Review&nbsp;any&nbsp;actions&nbsp;required&nbsp;in&nbsp;your&nbsp;environment.&nbsp;Take&nbsp;note&nbsp;of&nbsp;what&nbsp;is&nbsp;displayed.&nbsp;These&nbsp;actions&nbsp;can&nbsp;be&nbsp;engaged&nbsp;agentically,&nbsp;which&nbsp;will&nbsp;be&nbsp;covered&nbsp;in&nbsp;detail&nbsp;later&nbsp;in&nbsp;this&nbsp;lab.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "a3f7943b",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -133,8 +220,176 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-91b7aa81.png",
-              "caption": "capture-91b7aa81.png"
+              "path": "560ac7baae.png",
+              "caption": "560ac7baae.png"
+            },
+            {
+              "id": "371d7193",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "dc7dc97a",
+              "type": "text",
+              "content": "<p>Next,&nbsp;navigate&nbsp;to&nbsp;<strong><a href=\"../appendix-a-sample-ai-prompts/\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;A:&nbsp;Sample&nbsp;AI&nbsp;Prompts</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;and&nbsp;spend&nbsp;time&nbsp;running&nbsp;the&nbsp;validated&nbsp;prompts&nbsp;for&nbsp;this&nbsp;environment.&nbsp;Use&nbsp;the&nbsp;<strong>copy&nbsp;button</strong>&nbsp;on&nbsp;each&nbsp;prompt&nbsp;block&nbsp;to&nbsp;paste&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas&nbsp;—&nbsp;this&nbsp;ensures&nbsp;accuracy&nbsp;and&nbsp;eliminates&nbsp;the&nbsp;risk&nbsp;of&nbsp;transcription&nbsp;errors.&nbsp;As&nbsp;you&nbsp;work&nbsp;through&nbsp;each&nbsp;prompt,&nbsp;observe&nbsp;how&nbsp;the&nbsp;system&nbsp;interprets&nbsp;the&nbsp;input,&nbsp;what&nbsp;format&nbsp;the&nbsp;response&nbsp;takes,&nbsp;and&nbsp;how&nbsp;quickly&nbsp;results&nbsp;are&nbsp;returned.</p><p>The&nbsp;goal&nbsp;of&nbsp;this&nbsp;exercise&nbsp;is&nbsp;to&nbsp;thoroughly&nbsp;prepare&nbsp;yourself&nbsp;for&nbsp;live&nbsp;customer&nbsp;demonstrations&nbsp;by&nbsp;building&nbsp;familiarity&nbsp;and&nbsp;confidence&nbsp;with&nbsp;a&nbsp;core&nbsp;set&nbsp;of&nbsp;prompts&nbsp;that&nbsp;consistently&nbsp;produce&nbsp;clear,&nbsp;accurate,&nbsp;and&nbsp;compelling&nbsp;results.&nbsp;Consider&nbsp;the&nbsp;following&nbsp;as&nbsp;you&nbsp;explore:</p><ul><li><strong>Identify&nbsp;your&nbsp;strongest&nbsp;examples.</strong>&nbsp;Some&nbsp;prompts&nbsp;will&nbsp;generate&nbsp;output&nbsp;that&nbsp;is&nbsp;particularly&nbsp;well-suited&nbsp;for&nbsp;showcasing&nbsp;the&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;environment.&nbsp;Take&nbsp;note&nbsp;of&nbsp;these&nbsp;and&nbsp;prioritize&nbsp;them&nbsp;for&nbsp;use&nbsp;in&nbsp;demos.</li><li><strong>Understand&nbsp;the&nbsp;output.</strong>&nbsp;Be&nbsp;prepared&nbsp;to&nbsp;explain&nbsp;to&nbsp;a&nbsp;customer&nbsp;not&nbsp;just&nbsp;what&nbsp;the&nbsp;output&nbsp;shows,&nbsp;but&nbsp;why&nbsp;it&nbsp;is&nbsp;useful&nbsp;and&nbsp;how&nbsp;it&nbsp;maps&nbsp;to&nbsp;a&nbsp;real-world&nbsp;business&nbsp;scenario&nbsp;or&nbsp;use&nbsp;case.</li><li><strong>Anticipate&nbsp;follow-up&nbsp;questions.</strong>&nbsp;As&nbsp;you&nbsp;review&nbsp;each&nbsp;result,&nbsp;think&nbsp;about&nbsp;questions&nbsp;a&nbsp;customer&nbsp;might&nbsp;ask&nbsp;and&nbsp;ensure&nbsp;you&nbsp;can&nbsp;speak&nbsp;confidently&nbsp;to&nbsp;the&nbsp;underlying&nbsp;functionality.</li><li><strong>Practice&nbsp;your&nbsp;delivery.</strong>&nbsp;Running&nbsp;through&nbsp;these&nbsp;prompts&nbsp;multiple&nbsp;times&nbsp;will&nbsp;help&nbsp;you&nbsp;develop&nbsp;a&nbsp;smooth,&nbsp;natural&nbsp;delivery&nbsp;so&nbsp;that&nbsp;the&nbsp;demonstration&nbsp;feels&nbsp;polished&nbsp;and&nbsp;professional&nbsp;rather&nbsp;than&nbsp;scripted.</li></ul><p>Take&nbsp;as&nbsp;much&nbsp;time&nbsp;as&nbsp;needed&nbsp;during&nbsp;this&nbsp;section&nbsp;to&nbsp;become&nbsp;comfortable&nbsp;with&nbsp;the&nbsp;material.&nbsp;A&nbsp;well-rehearsed&nbsp;demonstration&nbsp;using&nbsp;familiar&nbsp;prompts&nbsp;is&nbsp;far&nbsp;more&nbsp;effective&nbsp;than&nbsp;presenting&nbsp;new&nbsp;or&nbsp;untested&nbsp;examples&nbsp;under&nbsp;the&nbsp;pressure&nbsp;of&nbsp;a&nbsp;live&nbsp;customer&nbsp;engagement.</p><p></p><p><strong>Example&nbsp;prompts&nbsp;you&nbsp;can&nbsp;use:</strong></p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "2ac15283",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "bee3921f",
+              "type": "callout",
+              "content": "<p>You&nbsp;can&nbsp;access&nbsp;<strong><a href=\"../appendix-a-sample-ai-prompts/\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;A:&nbsp;Sample&nbsp;AI&nbsp;Prompts</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;at&nbsp;any&nbsp;time&nbsp;from&nbsp;the&nbsp;navigation&nbsp;menu&nbsp;on&nbsp;the&nbsp;left.&nbsp;Each&nbsp;prompt&nbsp;has&nbsp;a&nbsp;copy&nbsp;button&nbsp;—&nbsp;click&nbsp;it&nbsp;to&nbsp;copy&nbsp;the&nbsp;prompt&nbsp;instantly&nbsp;to&nbsp;your&nbsp;clipboard,&nbsp;then&nbsp;paste&nbsp;it&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas.</p>",
+              "callout_type": "tip",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "ccd2ab18",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "b23914d9",
+              "type": "text",
+              "content": "<pre data-language=\"plain\">\nHow is my organization doing?\n</pre>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "eb1c3ebd",
+              "type": "text",
+              "content": "<pre data-language=\"plain\">\nAre there any outages affecting my monitored services right now?\n</pre>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "84f37dcd",
+              "type": "text",
+              "content": "<pre data-language=\"plain\">\nWhat are the current latency and packet loss metrics for my critical tests?\n</pre>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "33f987d1",
+              "type": "text",
+              "content": "<pre data-language=\"plain\">\nWhat is the current status of all my site-to-site VPN tunnels?\n</pre>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "46eb07e5",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "de53bd45",
+              "type": "text",
+              "content": "<p><strong>Example:</strong></p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "73ec135e",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "a95715657f.png",
+              "caption": "a95715657f.png"
+            },
+            {
+              "id": "28ed24e2",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "38118891",
+              "type": "callout",
+              "content": "<p>Actual&nbsp;responses&nbsp;will&nbsp;vary&nbsp;due&nbsp;to&nbsp;the&nbsp;nature&nbsp;of&nbsp;Agentic&nbsp;Systems&nbsp;</p>",
+              "callout_type": "note",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "b26caa51",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "e96d33ec",
+              "type": "text",
+              "content": "<p>Finally,&nbsp;<strong>click</strong>&nbsp;on&nbsp;<strong>Actions</strong>&nbsp;in&nbsp;the&nbsp;AI&nbsp;Assistant.&nbsp;Notice&nbsp;how&nbsp;the&nbsp;agentic&nbsp;system&nbsp;automatically&nbsp;analyzes&nbsp;these&nbsp;actions&nbsp;and&nbsp;&nbsp;<strong>correlates</strong>&nbsp;the&nbsp;related&nbsp;events&nbsp;for&nbsp;you,&nbsp;eliminating&nbsp;the&nbsp;need&nbsp;for&nbsp;<strong>manual&nbsp;investigation</strong>.&nbsp;Rather&nbsp;than&nbsp;requiring&nbsp;you&nbsp;to&nbsp;sift&nbsp;through&nbsp;individual&nbsp;log&nbsp;entries&nbsp;or&nbsp;alerts,&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;groups&nbsp;and&nbsp;connects&nbsp;relevant&nbsp;activities&nbsp;into&nbsp;a&nbsp;cohesive,&nbsp;contextualized&nbsp;narrative&nbsp;—&nbsp;making&nbsp;it&nbsp;significantly&nbsp;easier&nbsp;to&nbsp;understand&nbsp;the&nbsp;full&nbsp;scope&nbsp;and&nbsp;sequence&nbsp;of&nbsp;an&nbsp;incident.&nbsp;See&nbsp;the&nbsp;<strong>example&nbsp;below:</strong></p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "06b02b34",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "cfd296f1",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "55652ad2ad.png",
+              "caption": "55652ad2ad.png"
+            },
+            {
+              "id": "b3d8c3ae",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "2a5fb5e6",
+              "type": "callout",
+              "content": "<p>Notice&nbsp;that&nbsp;we&nbsp;can&nbsp;also&nbsp;move&nbsp;an&nbsp;Action&nbsp;to&nbsp;&quot;<strong>Collaborate&nbsp;in&nbsp;Canvas</strong>&quot;.&nbsp;We&nbsp;will&nbsp;be&nbsp;exploring&nbsp;the&nbsp;Agentic&nbsp;AI&nbsp;Canvas&nbsp;in&nbsp;the&nbsp;next&nbsp;section.</p>",
+              "callout_type": "note",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "38349da4",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
             }
           ],
           "code_blocks": [],
@@ -165,13 +420,29 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-6f4e152f.png",
-              "caption": "capture-6f4e152f.png"
+              "path": "f735b80124.png",
+              "caption": "f735b80124.png"
+            },
+            {
+              "id": "d9925bea",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
             },
             {
               "id": "8e71d689",
               "type": "text",
-              "content": "<p>Explore the three main sections available on the platform.</p><p>1. <strong>Platform Services</strong> — These services span the entire infrastructure. Each will be explored in detail throughout this lab. Additional services, such as Fabric, will continue to be added over time.</p><p>2. <strong>Products</strong> — These are the products currently integrated with your tenant. In this lab, only Meraki is integrated. In a production environment, multiple products would typically be present. For a full list of supported products and onboarding requirements, visit the <a href=\"https://cisco.sharepoint.com/sites/CiscoCloudControl-ControlledAvailability/SitePages/Home.aspx\" rel=\"noopener noreferrer\" target=\"_blank\">Cloud Control Onboarding SharePoint site</a>.</p><p>3. <strong>Favorites</strong> — Save frequently visited pages from any product in this section for quick access during future sessions.</p>",
+              "content": "<p>Explore&nbsp;the&nbsp;three&nbsp;main&nbsp;sections&nbsp;available&nbsp;on&nbsp;the&nbsp;platform.</p><p><strong>1.</strong>&nbsp;<strong>Platform&nbsp;Services</strong>&nbsp;—&nbsp;These&nbsp;services&nbsp;span&nbsp;the&nbsp;entire&nbsp;infrastructure.&nbsp;Each&nbsp;will&nbsp;be&nbsp;explored&nbsp;in&nbsp;detail&nbsp;throughout&nbsp;this&nbsp;lab.&nbsp;Additional&nbsp;services,&nbsp;such&nbsp;as&nbsp;Fabric,&nbsp;will&nbsp;continue&nbsp;to&nbsp;be&nbsp;added&nbsp;over&nbsp;time.</p><p><strong>2.&nbsp;Products</strong>&nbsp;—&nbsp;These&nbsp;are&nbsp;the&nbsp;products&nbsp;currently&nbsp;integrated&nbsp;with&nbsp;your&nbsp;tenant.&nbsp;In&nbsp;a&nbsp;production&nbsp;environment,&nbsp;multiple&nbsp;products&nbsp;would&nbsp;typically&nbsp;be&nbsp;present.&nbsp;For&nbsp;a&nbsp;full&nbsp;list&nbsp;of&nbsp;supported&nbsp;products&nbsp;and&nbsp;onboarding&nbsp;requirements,&nbsp;visit&nbsp;the&nbsp;<a href=\"https://cisco.sharepoint.com/sites/CiscoCloudControl-ControlledAvailability/SitePages/Home.aspx\" rel=\"noopener noreferrer\" target=\"_blank\">Cloud&nbsp;Control&nbsp;Onboarding&nbsp;SharePoint&nbsp;site</a>.</p><p><strong>3.</strong>&nbsp;<strong>Apps</strong>&nbsp;—&nbsp;Common&nbsp;applications&nbsp;residing&nbsp;in&nbsp;Cloud&nbsp;Control.</p><p><strong>4.&nbsp;Favorites</strong>&nbsp;—&nbsp;Save&nbsp;frequently&nbsp;visited&nbsp;pages&nbsp;from&nbsp;any&nbsp;product&nbsp;in&nbsp;this&nbsp;section&nbsp;for&nbsp;quick&nbsp;access&nbsp;during&nbsp;future&nbsp;sessions.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "39297ae3",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -179,7 +450,31 @@
             {
               "id": "e321d110",
               "type": "callout",
-              "content": "<p>Click a Platform Service or Product to pin it to the navigation bar. This bar remains visible throughout Cloud Control, enabling quick and consistent access regardless of where you navigate.</p>",
+              "content": "<p>Click&nbsp;a&nbsp;Platform&nbsp;Service&nbsp;or&nbsp;Product&nbsp;to&nbsp;pin&nbsp;it&nbsp;to&nbsp;the&nbsp;navigation&nbsp;bar.&nbsp;This&nbsp;bar&nbsp;remains&nbsp;visible&nbsp;throughout&nbsp;Cloud&nbsp;Control,&nbsp;enabling&nbsp;quick&nbsp;and&nbsp;consistent&nbsp;access&nbsp;regardless&nbsp;of&nbsp;where&nbsp;you&nbsp;navigate.</p>",
+              "callout_type": "note",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "aaa33495",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "c6ce2b5c",
+              "type": "callout",
+              "content": "<p>Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;constraints&nbsp;of&nbsp;this&nbsp;lab,&nbsp;Intersight&nbsp;and&nbsp;Nexus&nbsp;Dashboard&nbsp;products&nbsp;are&nbsp;not&nbsp;available&nbsp;as&nbsp;managed&nbsp;Products.</p>",
+              "callout_type": "caution",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "6efc20e4",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -189,8 +484,16 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-eb82ce39.png",
-              "caption": "capture-eb82ce39.png"
+              "path": "8e31effd5c.png",
+              "caption": "8e31effd5c.png"
+            },
+            {
+              "id": "6edbd3db",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
             }
           ],
           "code_blocks": [],
@@ -210,7 +513,15 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-a4548035.png",
+              "path": "f017eb63c9.png",
+              "caption": "f017eb63c9.png"
+            },
+            {
+              "id": "201136cc",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
               "caption": ""
             },
             {
@@ -222,17 +533,41 @@
               "caption": ""
             },
             {
+              "id": "1005d40c",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
               "id": "3781f867",
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-8620480a.png",
+              "path": "6f8e9d0b9d.png",
+              "caption": "6f8e9d0b9d.png"
+            },
+            {
+              "id": "0ed9de17",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
               "caption": ""
             },
             {
               "id": "34d95cb8",
               "type": "text",
-              "content": "<p>Click <strong>Show Device Inventory</strong> or select an alternative view to change the display format.</p>",
+              "content": "<p><strong>Click</strong>&nbsp;the&nbsp;alternative&nbsp;view&nbsp;to&nbsp;display&nbsp;the&nbsp;full&nbsp;inventory.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "f8ec9943",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -242,13 +577,29 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-112100bd.png",
+              "path": "ddc3fd3fae.png",
+              "caption": "ddc3fd3fae.png"
+            },
+            {
+              "id": "473bc1ac",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
               "caption": ""
             },
             {
               "id": "c996c1c0",
               "type": "text",
-              "content": "<p>Practice using the AI-assisted search functionality within the Inventory section. Collaborate with your team to explore the available Inventory capabilities, including filtering, sorting, and device categorization options.</p><p>Locate your two dedicated switches within the Inventory list and click one to select it.</p><p>Observe the device details panel that opens on the right side of the screen. This panel displays comprehensive information for your <strong>C9300-X-X</strong> Cisco Catalyst C9300 switch.</p><p>Review the <strong>General</strong> tab, which provides a high-level device overview including key operational indicators. Confirm that the Reachability status shows <em>Reachable</em>, indicating the device is actively communicating with the management platform, and that the Compliance status shows <em>Compliant</em>, confirming the device configuration meets your organization's defined policy standards.</p><p>After reviewing the device details, click the <strong>View in Meraki</strong> button in the bottom-right corner of the details panel.</p>",
+              "content": "<!--markdown-->\nPractice using the **AI-assisted search** functionality within the Inventory section. **Collaborate** with your team to explore the available Inventory capabilities, including filtering, sorting, and device categorization options.\n\n**1.** Enter the sample prompt below into the AI-Assisted Search and press Enter:\n\n```\nshow me my Mexico City Devices\n```\n\n**2.** **Click** the **C9300-X-Leaf-1** switch to view it.\n\n**3.** Review the device details panel that opens on the right side of the screen. This panel displays comprehensive information for your **C9300-X-Leaf-1** switch. Review the **General** tab, which provides a high-level device overview including key operational indicators. Confirm that the Reachability status shows ***Reachable***, indicating the device is actively communicating with the management platform, and that the Compliance status shows ***Compliant***, confirming the device configuration meets your organisation's defined policy standards.\n\n**4.** **Click** **View in Topology**. This will take you directly to the switch in the Global Topology Service.\n",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "d8c822c2",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -258,13 +609,29 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-1ead1250.png",
+              "path": "a5266bb0c4.png",
+              "caption": "a5266bb0c4.png"
+            },
+            {
+              "id": "68159ee6",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
               "caption": ""
             },
             {
-              "id": "bab269fc",
+              "id": "5d6b4c81",
               "type": "text",
-              "content": "<p>This action opens the Meraki Dashboard in context for the selected device, demonstrating the seamless cross-platform navigation capability within Cisco Cloud Control.</p><p>This integration allows network administrators to move fluidly between unified inventory management and platform-specific dashboards without separately logging in or searching for the device within Meraki.</p><p>Notice the top navigation bar, which reflects the unified Cloud Control interface. Click <strong>Home</strong> to return to the Cloud Control home screen, or click any other element in the banner to navigate directly to it. These tabs allow you to seamlessly move between management planes within a single dashboard.</p>",
+              "content": "<p>The&nbsp;Topology&nbsp;view&nbsp;displays&nbsp;your&nbsp;global&nbsp;network&nbsp;topology&nbsp;organized&nbsp;by&nbsp;site,&nbsp;providing&nbsp;a&nbsp;visual&nbsp;representation&nbsp;of&nbsp;device&nbsp;relationships&nbsp;and&nbsp;connectivity&nbsp;across&nbsp;your&nbsp;environment.&nbsp;In&nbsp;this&nbsp;case,&nbsp;we&nbsp;pivoted&nbsp;directly&nbsp;to&nbsp;the&nbsp;<strong>C9300-X-Leaf1&nbsp;i</strong>n&nbsp;the&nbsp;local&nbsp;site&nbsp;topology.&nbsp;Notice&nbsp;the&nbsp;navigation&nbsp;options&nbsp;available&nbsp;to&nbsp;go&nbsp;directly&nbsp;to&nbsp;the&nbsp;device&nbsp;in&nbsp;Meraki&nbsp;or&nbsp;pivot&nbsp;back&nbsp;to&nbsp;the&nbsp;device&nbsp;in&nbsp;inventory.</p><p></p><p>To&nbsp;demonstrate&nbsp;the&nbsp;seamless&nbsp;pivot&nbsp;to&nbsp;the<strong>&nbsp;Mexico&nbsp;City</strong>&nbsp;network,&nbsp;<strong>Click&nbsp;Meraki</strong>&nbsp;on&nbsp;the&nbsp;top&nbsp;navigation&nbsp;banner.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "a8ddaef2",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -274,13 +641,21 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-2c0815ed.png",
+              "path": "8668d35970.png",
+              "caption": "8668d35970.png"
+            },
+            {
+              "id": "bab269fc",
+              "type": "text",
+              "content": "<p>This&nbsp;action&nbsp;opens&nbsp;the&nbsp;Meraki&nbsp;Dashboard&nbsp;in&nbsp;context&nbsp;for&nbsp;the&nbsp;selected&nbsp;site,&nbsp;demonstrating&nbsp;the&nbsp;seamless&nbsp;cross-platform&nbsp;navigation&nbsp;capability&nbsp;within&nbsp;Cisco&nbsp;Cloud&nbsp;Control.</p><p>This&nbsp;integration&nbsp;allows&nbsp;network&nbsp;administrators&nbsp;to&nbsp;move&nbsp;fluidly&nbsp;between&nbsp;unified&nbsp;inventory&nbsp;management&nbsp;and&nbsp;platform-specific&nbsp;dashboards&nbsp;without&nbsp;separately&nbsp;logging&nbsp;in&nbsp;or&nbsp;searching&nbsp;for&nbsp;the&nbsp;device&nbsp;within&nbsp;Meraki.</p><p>Notice&nbsp;the&nbsp;top&nbsp;navigation&nbsp;bar,&nbsp;which&nbsp;reflects&nbsp;the&nbsp;unified&nbsp;Cloud&nbsp;Control&nbsp;interface.&nbsp;Click&nbsp;<strong>Home</strong>&nbsp;to&nbsp;return&nbsp;to&nbsp;the&nbsp;Cloud&nbsp;Control&nbsp;home&nbsp;screen,&nbsp;or&nbsp;click&nbsp;any&nbsp;other&nbsp;element&nbsp;in&nbsp;the&nbsp;banner&nbsp;to&nbsp;navigate&nbsp;directly&nbsp;to&nbsp;it.&nbsp;These&nbsp;tabs&nbsp;allow&nbsp;you&nbsp;to&nbsp;seamlessly&nbsp;move&nbsp;between&nbsp;management&nbsp;planes&nbsp;within&nbsp;a&nbsp;single&nbsp;dashboard.</p>",
+              "callout_type": "",
+              "path": "",
               "caption": ""
             },
             {
-              "id": "57a0d218",
-              "type": "text",
-              "content": "<p>From the top navigation banner, click <strong>Topology</strong>.</p>",
+              "id": "5e62b3a9",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -290,30 +665,22 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "capture-eefe5d44.png",
-              "caption": ""
+              "path": "c126892f9c.png",
+              "caption": "c126892f9c.png"
             },
             {
-              "id": "5d6b4c81",
-              "type": "text",
-              "content": "<p>The Topology view displays your global network topology organized by site, providing a visual representation of device relationships and connectivity across your environment.</p>",
+              "id": "610f10cc",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
             },
             {
-              "id": "aec51dda",
-              "type": "screenshot",
-              "content": "",
-              "callout_type": "",
-              "path": "capture-d940b575.png",
-              "caption": ""
-            },
-            {
               "id": "a46ce8bd",
               "type": "callout",
-              "content": "<p>Congratulations on completing this section! You have successfully navigated the Cisco Cloud Control platform and gained hands-on experience with its core services, including the AI Assistant, Inventory, and Topology. These foundational skills will serve as building blocks as you progress through the remaining sections of this lab.</p>",
-              "callout_type": "",
+              "content": "<p>Congratulations&nbsp;on&nbsp;completing&nbsp;this&nbsp;section!&nbsp;You&nbsp;have&nbsp;successfully&nbsp;navigated&nbsp;the&nbsp;Cisco&nbsp;Cloud&nbsp;Control&nbsp;platform&nbsp;and&nbsp;gained&nbsp;hands-on&nbsp;experience&nbsp;with&nbsp;its&nbsp;core&nbsp;services,&nbsp;including&nbsp;the&nbsp;AI&nbsp;Assistant,&nbsp;Inventory,&nbsp;Topology,&nbsp;and&nbsp;Actions.&nbsp;These&nbsp;foundational&nbsp;skills&nbsp;will&nbsp;serve&nbsp;as&nbsp;building&nbsp;blocks&nbsp;as&nbsp;you&nbsp;progress&nbsp;through&nbsp;the&nbsp;remaining&nbsp;sections&nbsp;of&nbsp;this&nbsp;lab.</p>",
+              "callout_type": "congratulations",
               "path": "",
               "caption": ""
             }
@@ -325,6 +692,7 @@
     },
     {
       "id": "5e133176",
+      "order": 2,
       "title": "Section 2: Experience the Agentic AI Canvas",
       "overview": "In this section we will explore the AI Canvas and Agentic Ops capabilities in Cisco Cloud Control",
       "screenshots": [],
@@ -332,7 +700,15 @@
         {
           "id": "abcfcf10",
           "type": "text",
-          "content": "<p>Lauch&nbsp;AI&nbsp;Canvas</p>",
+          "content": "<p>Start&nbsp;on&nbsp;the&nbsp;Home&nbsp;section&nbsp;by&nbsp;<strong>clicking&nbsp;Canvas</strong>.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "ec8d6636",
+          "type": "divider",
+          "content": "",
           "callout_type": "",
           "path": "",
           "caption": ""
@@ -342,38 +718,262 @@
           "type": "screenshot",
           "content": "",
           "callout_type": "",
-          "path": "screenshots/capture-dd716e09.png",
-          "caption": "Cisco Cloud Control Canvas home page showing Quick Start templates and recent boards"
+          "path": "screenshots/e4bc15699c.png",
+          "caption": ""
         },
         {
-          "id": "246e17c2",
-          "type": "text",
-          "content": "<p>Notice&nbsp;that&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;has&nbsp;responded&nbsp;to&nbsp;your&nbsp;health&nbsp;query&nbsp;and&nbsp;automatically&nbsp;generated&nbsp;an&nbsp;<strong>Organization&nbsp;Summary</strong>&nbsp;card&nbsp;on&nbsp;the&nbsp;Canvas,&nbsp;displaying&nbsp;the&nbsp;overall&nbsp;health&nbsp;of&nbsp;your&nbsp;Meraki&nbsp;organization&nbsp;</p><p></p><p>Review&nbsp;the&nbsp;card&nbsp;details,&nbsp;which&nbsp;highlight&nbsp;key&nbsp;concerns&nbsp;including&nbsp;devices&nbsp;online,&nbsp;dormant&nbsp;devices,&nbsp;and&nbsp;severely&nbsp;degraded&nbsp;uplink&nbsp;connectivity.</p><p></p><p>Click&nbsp;<strong>Summarize&nbsp;this&nbsp;card</strong>&nbsp;at&nbsp;the&nbsp;top&nbsp;of&nbsp;the&nbsp;canvas&nbsp;to&nbsp;have&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;generate&nbsp;a&nbsp;concise&nbsp;summary&nbsp;of&nbsp;the&nbsp;organization&nbsp;health&nbsp;data,&nbsp;or&nbsp;type&nbsp;a&nbsp;follow-up&nbsp;question&nbsp;in&nbsp;the&nbsp;chat&nbsp;input&nbsp;field&nbsp;to&nbsp;drill&nbsp;deeper&nbsp;into&nbsp;a&nbsp;specific&nbsp;issue&nbsp;such&nbsp;as&nbsp;dormant&nbsp;devices&nbsp;or&nbsp;uplink&nbsp;failures.</p>",
+          "id": "d84341b6",
+          "type": "divider",
+          "content": "",
           "callout_type": "",
           "path": "",
           "caption": ""
         },
         {
-          "id": "ac81bab3",
+          "id": "c909b82f",
+          "type": "text",
+          "content": "<p>Now&nbsp;in&nbsp;the&nbsp;AI&nbsp;Canvas&nbsp;section&nbsp;you&nbsp;will&nbsp;see:</p><p></p><ol><li>The&nbsp;ability&nbsp;to&nbsp;create&nbsp;a&nbsp;<strong>New&nbsp;Canvas</strong></li><li>The&nbsp;<strong>Quick&nbsp;Start</strong>&nbsp;tiles,&nbsp;which&nbsp;allow&nbsp;you&nbsp;to&nbsp;run&nbsp;a&nbsp;set&nbsp;of&nbsp;pre-populated&nbsp;prompts</li><li>The&nbsp;<strong>Recent</strong>&nbsp;list&nbsp;of&nbsp;Canvases</li></ol><p></p><p>Next,&nbsp;<strong>click</strong>&nbsp;the&nbsp;Wireless&nbsp;Quick&nbsp;Start&nbsp;tile&nbsp;and&nbsp;let&#39;s&nbsp;put&nbsp;AI&nbsp;Canvas&nbsp;to&nbsp;work.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "ba66f888",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "6776863f",
           "type": "screenshot",
           "content": "",
           "callout_type": "",
-          "path": "screenshots/capture-073e6760.png",
-          "caption": "Cisco Cloud Control Canvas displaying Meraki organization health summary with critical 12% score"
+          "path": "screenshots/92dec771bf.png",
+          "caption": ""
+        },
+        {
+          "id": "ab4fc90d",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "7ba2e94b",
+          "type": "callout",
+          "content": "<p>Canvas&nbsp;may&nbsp;prompt&nbsp;you&nbsp;to&nbsp;answer&nbsp;a&nbsp;set&nbsp;of&nbsp;clarifying&nbsp;questions&nbsp;before&nbsp;generating&nbsp;content.&nbsp;These&nbsp;questions&nbsp;are&nbsp;designed&nbsp;to&nbsp;help&nbsp;Canvas&nbsp;better&nbsp;understand&nbsp;your&nbsp;specific&nbsp;requirements,&nbsp;preferences,&nbsp;and&nbsp;goals,&nbsp;ensuring&nbsp;that&nbsp;the&nbsp;output&nbsp;is&nbsp;tailored&nbsp;precisely&nbsp;to&nbsp;your&nbsp;needs.&nbsp;Simply&nbsp;read&nbsp;each&nbsp;question&nbsp;carefully&nbsp;and&nbsp;provide&nbsp;your&nbsp;answers&nbsp;as&nbsp;you&nbsp;see&nbsp;fit.&nbsp;There&nbsp;are&nbsp;no&nbsp;right&nbsp;or&nbsp;wrong&nbsp;responses&nbsp;—&nbsp;your&nbsp;answers&nbsp;serve&nbsp;as&nbsp;guidance&nbsp;to&nbsp;help&nbsp;Canvas&nbsp;produce&nbsp;the&nbsp;most&nbsp;relevant&nbsp;and&nbsp;accurate&nbsp;result&nbsp;possible.</p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "6ab7b464",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "2dc75168",
+          "type": "text",
+          "content": "<p>Next,&nbsp;watch&nbsp;closely&nbsp;as&nbsp;AI&nbsp;Canvas&nbsp;<strong>generates&nbsp;the&nbsp;Wireless&nbsp;session</strong>,&nbsp;reviewing&nbsp;wireless&nbsp;performance,&nbsp;clients,&nbsp;and&nbsp;alerts&nbsp;in&nbsp;the&nbsp;environment.</p><p></p><p>Once&nbsp;it&nbsp;completes,&nbsp;<strong>spend&nbsp;some&nbsp;time&nbsp;exploring</strong>&nbsp;the&nbsp;various&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;Canvas&nbsp;interface,&nbsp;such&nbsp;as&nbsp;the&nbsp;ability&nbsp;to&nbsp;share&nbsp;and&nbsp;invite&nbsp;others,&nbsp;annotate,&nbsp;resize&nbsp;cards,&nbsp;generate&nbsp;a&nbsp;summary,&nbsp;and&nbsp;more.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "ee4bebf8",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "157b895e",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/d48186e8fa.png",
+          "caption": ""
+        },
+        {
+          "id": "1864f525",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
         },
         {
           "id": "dfc56e1a",
           "type": "text",
-          "content": "<p>Highlight&nbsp;the&nbsp;/&nbsp;and&nbsp;#&nbsp;shortcuts&nbsp;for&nbsp;the&nbsp;prompt&nbsp;and&nbsp;what&nbsp;capabilities&nbsp;those&nbsp;provide.&nbsp;Also&nbsp;explore&nbsp;the&nbsp;differences&nbsp;between&nbsp;&nbsp;Default&nbsp;and&nbsp;Deep&nbsp;Reasoning&nbsp;mode</p><p></p><p><strong>Default</strong>&nbsp;mode&nbsp;and&nbsp;<strong>Deep&nbsp;Reasoning</strong></p><p></p><p><strong>Default&nbsp;mode</strong>&nbsp;uses&nbsp;a&nbsp;standard&nbsp;language&nbsp;model&nbsp;optimized&nbsp;for&nbsp;speed&nbsp;and&nbsp;general-purpose&nbsp;assistance.&nbsp;It&nbsp;is&nbsp;well-suited&nbsp;for&nbsp;everyday&nbsp;tasks&nbsp;such&nbsp;as&nbsp;writing&nbsp;boilerplate&nbsp;code,&nbsp;asking&nbsp;quick&nbsp;questions,&nbsp;getting&nbsp;explanations,&nbsp;or&nbsp;making&nbsp;minor&nbsp;code&nbsp;edits.&nbsp;Responses&nbsp;are&nbsp;generated&nbsp;quickly,&nbsp;making&nbsp;this&nbsp;mode&nbsp;ideal&nbsp;when&nbsp;you&nbsp;need&nbsp;fast,&nbsp;iterative&nbsp;feedback&nbsp;during&nbsp;active&nbsp;development.</p><p></p><p><strong>Deep&nbsp;Reasoning&nbsp;mode</strong>&nbsp;leverages&nbsp;a&nbsp;more&nbsp;advanced&nbsp;model&nbsp;capable&nbsp;of&nbsp;multi-step&nbsp;reasoning&nbsp;and&nbsp;complex&nbsp;problem&nbsp;analysis.&nbsp;This&nbsp;mode&nbsp;is&nbsp;better&nbsp;suited&nbsp;for&nbsp;tasks&nbsp;that&nbsp;require&nbsp;careful,&nbsp;methodical&nbsp;thinking,&nbsp;such&nbsp;as:</p><ul><li>Debugging&nbsp;complex,&nbsp;hard-to-reproduce&nbsp;issues&nbsp;that&nbsp;span&nbsp;multiple&nbsp;files&nbsp;or&nbsp;systems.</li><li>Architecting&nbsp;solutions&nbsp;to&nbsp;intricate&nbsp;design&nbsp;problems&nbsp;where&nbsp;trade-offs&nbsp;need&nbsp;to&nbsp;be&nbsp;carefully&nbsp;considered.</li><li>Analyzing&nbsp;algorithms&nbsp;for&nbsp;correctness,&nbsp;performance,&nbsp;or&nbsp;edge&nbsp;cases.</li><li>Working&nbsp;through&nbsp;problems&nbsp;that&nbsp;require&nbsp;the&nbsp;model&nbsp;to&nbsp;plan&nbsp;several&nbsp;steps&nbsp;ahead&nbsp;before&nbsp;producing&nbsp;an&nbsp;answer.</li></ul><p></p><p>The&nbsp;trade-off&nbsp;with&nbsp;Deep&nbsp;Reasoning&nbsp;mode&nbsp;is&nbsp;that&nbsp;responses&nbsp;take&nbsp;longer&nbsp;to&nbsp;generate&nbsp;due&nbsp;to&nbsp;the&nbsp;additional&nbsp;computational&nbsp;steps&nbsp;involved.&nbsp;For&nbsp;straightforward&nbsp;tasks,&nbsp;Default&nbsp;mode&nbsp;will&nbsp;typically&nbsp;be&nbsp;faster&nbsp;and&nbsp;sufficient,&nbsp;while&nbsp;Deep&nbsp;Reasoning&nbsp;mode&nbsp;is&nbsp;most&nbsp;valuable&nbsp;when&nbsp;accuracy&nbsp;and&nbsp;thoroughness&nbsp;outweigh&nbsp;the&nbsp;need&nbsp;for&nbsp;speed.</p>",
+          "content": "<ol><li>Within&nbsp;Canvas,&nbsp;practice&nbsp;entering&nbsp;<strong>/</strong>&nbsp;for&nbsp;a&nbsp;set&nbsp;of&nbsp;pre-populated&nbsp;prompts&nbsp;and&nbsp;<strong>#</strong>&nbsp;for&nbsp;accessing&nbsp;and&nbsp;managing&nbsp;a&nbsp;knowledge&nbsp;base&nbsp;of&nbsp;contextual&nbsp;information.</li><li>Notice&nbsp;that&nbsp;you&nbsp;can&nbsp;toggle&nbsp;between&nbsp;<strong>Default</strong>&nbsp;and&nbsp;<strong>Reasoning&nbsp;Mode</strong>.&nbsp;See&nbsp;the&nbsp;detailed&nbsp;differences&nbsp;below:</li></ol><p></p><p><strong>Default&nbsp;Mode</strong>&nbsp;uses&nbsp;a&nbsp;standard&nbsp;language&nbsp;model&nbsp;optimized&nbsp;for&nbsp;speed&nbsp;and&nbsp;general-purpose&nbsp;assistance.&nbsp;It&nbsp;is&nbsp;well-suited&nbsp;for&nbsp;everyday&nbsp;tasks,&nbsp;asking&nbsp;quick&nbsp;questions,&nbsp;and&nbsp;getting&nbsp;explanations.&nbsp;Responses&nbsp;are&nbsp;generated&nbsp;quickly,&nbsp;making&nbsp;this&nbsp;mode&nbsp;ideal&nbsp;when&nbsp;you&nbsp;need&nbsp;fast,&nbsp;iterative&nbsp;feedback.</p><p></p><p><strong>Reasoning&nbsp;Mode</strong>&nbsp;leverages&nbsp;a&nbsp;more&nbsp;advanced&nbsp;model&nbsp;capable&nbsp;of&nbsp;multi-step&nbsp;reasoning&nbsp;and&nbsp;complex&nbsp;problem&nbsp;analysis.&nbsp;This&nbsp;mode&nbsp;is&nbsp;better&nbsp;suited&nbsp;for&nbsp;tasks&nbsp;that&nbsp;require&nbsp;careful,&nbsp;methodical&nbsp;thinking,&nbsp;such&nbsp;as:</p><ul><li>Debugging&nbsp;complex,&nbsp;hard-to-reproduce&nbsp;issues&nbsp;that&nbsp;span&nbsp;multiple&nbsp;systems</li><li>Working&nbsp;through&nbsp;problems&nbsp;that&nbsp;require&nbsp;the&nbsp;model&nbsp;to&nbsp;plan&nbsp;several&nbsp;steps&nbsp;ahead&nbsp;before&nbsp;producing&nbsp;an&nbsp;answer</li></ul>",
           "callout_type": "",
           "path": "",
           "caption": ""
         },
         {
-          "id": "b905a24a",
-          "type": "callout",
-          "content": "<p>Please&nbsp;collaborate&nbsp;with&nbsp;your&nbsp;team&nbsp;to&nbsp;explore&nbsp;prompts&nbsp;that&nbsp;return&nbsp;interesting&nbsp;and&nbsp;helpful&nbsp;Agentic&nbsp;Ops&nbsp;workflows&nbsp;useful&nbsp;for&nbsp;your&nbsp;assigned&nbsp;lab&nbsp;pod.</p>",
+          "id": "d9750758",
+          "type": "divider",
+          "content": "",
           "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "6137f291",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/e25c577f41.png",
+          "caption": ""
+        },
+        {
+          "id": "8810430b",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "b78c17cd",
+          "type": "callout",
+          "content": "<p>The&nbsp;trade-off&nbsp;with&nbsp;Reasoning&nbsp;mode&nbsp;is&nbsp;that&nbsp;responses&nbsp;take&nbsp;longer&nbsp;to&nbsp;generate&nbsp;due&nbsp;to&nbsp;the&nbsp;additional&nbsp;computational&nbsp;steps&nbsp;involved.&nbsp;For&nbsp;straightforward&nbsp;tasks,&nbsp;Default&nbsp;mode&nbsp;will&nbsp;typically&nbsp;be&nbsp;faster&nbsp;and&nbsp;sufficient,&nbsp;while&nbsp;Reasoning&nbsp;mode&nbsp;is&nbsp;most&nbsp;valuable&nbsp;when&nbsp;accuracy&nbsp;and&nbsp;thoroughness&nbsp;outweigh&nbsp;the&nbsp;need&nbsp;for&nbsp;speed.</p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "ec17161a",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "c1923be3",
+          "type": "text",
+          "content": "<p>Finally,&nbsp;<strong>review&nbsp;the&nbsp;example</strong>&nbsp;below&nbsp;of&nbsp;using&nbsp;Canvas&nbsp;to&nbsp;arrive&nbsp;at&nbsp;a&nbsp;<strong>root&nbsp;cause&nbsp;analysis&nbsp;(RCA)</strong>&nbsp;for&nbsp;a&nbsp;given&nbsp;scenario.&nbsp;Due&nbsp;to&nbsp;time&nbsp;constraints,&nbsp;we&nbsp;will&nbsp;<strong>NOT</strong>&nbsp;be&nbsp;running&nbsp;the&nbsp;prompts&nbsp;below&nbsp;—&nbsp;they&nbsp;are&nbsp;provided&nbsp;for&nbsp;your&nbsp;reference&nbsp;and&nbsp;for&nbsp;when&nbsp;you&nbsp;demo&nbsp;to&nbsp;customers&nbsp;in&nbsp;the&nbsp;future.&nbsp;Please&nbsp;just&nbsp;review&nbsp;the&nbsp;example.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "f0ddff50",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "231ea5a6",
+          "type": "text",
+          "content": "<p>The&nbsp;scenario&nbsp;below&nbsp;involves&nbsp;a&nbsp;<strong>Network&nbsp;Operator</strong>&nbsp;who&nbsp;wants&nbsp;to&nbsp;perform&nbsp;Root&nbsp;Cause&nbsp;Analysis&nbsp;(<strong>RCA</strong>)&nbsp;on&nbsp;<strong>SD-WAN&nbsp;sites&nbsp;that&nbsp;are&nbsp;down</strong>.&nbsp;The&nbsp;progression&nbsp;of&nbsp;prompts&nbsp;used&nbsp;is&nbsp;outlined&nbsp;below,&nbsp;and&nbsp;the&nbsp;screenshots&nbsp;are&nbsp;provided&nbsp;for&nbsp;your&nbsp;reference.</p><p></p><p><strong>Example&nbsp;sequence&nbsp;of&nbsp;prompts:</strong></p><p></p><p><strong>Prompt&nbsp;#1&nbsp;</strong>Summarize&nbsp;my&nbsp;Catalyst&nbsp;SD-WAN&nbsp;deployment</p><p><strong>Prompt&nbsp;#2&nbsp;</strong>Give&nbsp;me&nbsp;the&nbsp;list&nbsp;of&nbsp;sites&nbsp;with&nbsp;low&nbsp;availability</p><p><strong>Prompt&nbsp;#3&nbsp;</strong>I&nbsp;can&nbsp;see&nbsp;that&nbsp;Site_101&nbsp;has&nbsp;0%&nbsp;availability.&nbsp;Help&nbsp;me&nbsp;troubleshoot&nbsp;and&nbsp;identify&nbsp;the&nbsp;root&nbsp;cause</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9c9ba355",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "6e04111d",
+          "type": "callout",
+          "content": "<p>Actual&nbsp;responses&nbsp;will&nbsp;vary&nbsp;due&nbsp;to&nbsp;the&nbsp;nature&nbsp;of&nbsp;Agentic&nbsp;Systems</p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "aef696f4",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "48b4fbb6",
+          "type": "text",
+          "content": "<p><strong>Example&nbsp;screenshots&nbsp;below:</strong></p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "cceb14bd",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "5a3ee3a9",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/f343d7858a.png",
+          "caption": ""
+        },
+        {
+          "id": "7b0da73e",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "e739fc25",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/ddec56c244.png",
+          "caption": ""
+        },
+        {
+          "id": "b815990c",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "66225d17",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/46d730ba18.png",
+          "caption": ""
+        },
+        {
+          "id": "49ea18a4",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "29824b54",
+          "type": "callout",
+          "content": "<p>You&nbsp;now&nbsp;have&nbsp;the&nbsp;foundational&nbsp;knowledge&nbsp;required&nbsp;to&nbsp;work&nbsp;effectively&nbsp;with&nbsp;the&nbsp;<strong>Agentic&nbsp;AI&nbsp;Canvas</strong>.&nbsp;This&nbsp;concludes&nbsp;the&nbsp;section.</p>",
+          "callout_type": "congratulations",
           "path": "",
           "caption": ""
         }
@@ -382,14 +982,55 @@
     },
     {
       "id": "2b01f9fb",
+      "order": 3,
       "title": "Section 3: Build an Agent with Agent Builder",
-      "overview": "In this section, you will use Agent Builder to configure and deploy a functional agent. You'll explore available integrations and connect the necessary components to bring your agent to life.",
+      "overview": "Agent Builder is Cisco's platform for building autonomous agents that run on a schedule, and for connecting third-party tools to AI Canvas. This section walks through building, configuring, and the observability of Agents.",
       "screenshots": [],
       "blocks": [
         {
+          "id": "66146b30",
+          "type": "text",
+          "content": "<p>First,&nbsp;we&nbsp;will&nbsp;navigate&nbsp;to&nbsp;Agent&nbsp;Builder:</p><ol><li>Click&nbsp;the&nbsp;<strong>nine-dots&nbsp;menu</strong>&nbsp;in&nbsp;the&nbsp;top&nbsp;header.</li><li>Under&nbsp;<strong>Platform&nbsp;Services</strong>,&nbsp;click&nbsp;<strong>Studio</strong>.&nbsp;If&nbsp;it&nbsp;is&nbsp;not&nbsp;visible,&nbsp;click&nbsp;<strong>Show&nbsp;more</strong>&nbsp;to&nbsp;expand&nbsp;the&nbsp;list.</li><li>If&nbsp;<strong>Studio</strong>&nbsp;has&nbsp;been&nbsp;pinned,&nbsp;you&nbsp;can&nbsp;also&nbsp;click&nbsp;it&nbsp;directly&nbsp;from&nbsp;the&nbsp;header.</li></ol>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "c2797646",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "074f014d",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/d7e249db50.png",
+          "caption": ""
+        },
+        {
+          "id": "c7d7204a",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
           "id": "1c8f10fe",
           "type": "text",
-          "content": "<p>Notice&nbsp;the&nbsp;<strong>Studio</strong>&nbsp;overview&nbsp;page&nbsp;within&nbsp;Cisco&nbsp;Cloud&nbsp;Control,&nbsp;which&nbsp;serves&nbsp;as&nbsp;the&nbsp;central&nbsp;hub&nbsp;for&nbsp;building&nbsp;and&nbsp;managing&nbsp;AI&nbsp;agents.&nbsp;Observe&nbsp;the&nbsp;four&nbsp;navigation&nbsp;tabs&nbsp;at&nbsp;the&nbsp;top:&nbsp;<strong>Overview</strong>,&nbsp;<strong>Integrations</strong>,&nbsp;<strong>Agent&nbsp;Builder</strong>,&nbsp;and&nbsp;<strong>Observability</strong>.</p><p>To&nbsp;begin&nbsp;building&nbsp;your&nbsp;first&nbsp;agent,&nbsp;click&nbsp;<strong>+&nbsp;Create&nbsp;Agent</strong>&nbsp;to&nbsp;launch&nbsp;the&nbsp;Agent&nbsp;Builder&nbsp;workflow,&nbsp;or&nbsp;click&nbsp;<strong>+&nbsp;Browse&nbsp;Integrations</strong>&nbsp;to&nbsp;first&nbsp;explore&nbsp;and&nbsp;configure&nbsp;the&nbsp;available&nbsp;integrations&nbsp;that&nbsp;your&nbsp;agent&nbsp;will&nbsp;use.</p>",
+          "content": "<p>This&nbsp;opens&nbsp;the&nbsp;<strong>Studio</strong>&nbsp;overview&nbsp;page&nbsp;within&nbsp;Cisco&nbsp;Cloud&nbsp;Control,&nbsp;which&nbsp;serves&nbsp;as&nbsp;the&nbsp;central&nbsp;hub&nbsp;for&nbsp;building&nbsp;and&nbsp;managing&nbsp;AI&nbsp;agents.&nbsp;Observe&nbsp;the&nbsp;four&nbsp;navigation&nbsp;tabs&nbsp;at&nbsp;the&nbsp;top:&nbsp;<strong>Overview</strong>,&nbsp;<strong>Integrations</strong>,&nbsp;<strong>Agent&nbsp;Builder</strong>,&nbsp;and&nbsp;<strong>Observability</strong>.</p><p></p><p>You&nbsp;will&nbsp;see&nbsp;one&nbsp;existing&nbsp;Agent&nbsp;that&nbsp;ends&nbsp;with&nbsp;(<strong>GSX</strong>)&nbsp;we&nbsp;will&nbsp;explore&nbsp;the&nbsp;agents&nbsp;output&nbsp;later.&nbsp;</p><p></p><p>To&nbsp;begin&nbsp;building&nbsp;your&nbsp;first&nbsp;agent,&nbsp;<strong>Click</strong>&nbsp;the&nbsp;<strong>Agent&nbsp;Builder&nbsp;</strong>tab<strong>.</strong></p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "efd4e233",
+          "type": "divider",
+          "content": "",
           "callout_type": "",
           "path": "",
           "caption": ""
@@ -399,7 +1040,487 @@
           "type": "screenshot",
           "content": "",
           "callout_type": "",
-          "path": "screenshots/capture-fd0f345d.png",
+          "path": "screenshots/fc48237919.png",
+          "caption": ""
+        },
+        {
+          "id": "38ed7aa8",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "68183a32",
+          "type": "text",
+          "content": "<p><strong>Click&nbsp;Create&nbsp;Agent&nbsp;</strong>to&nbsp;launch&nbsp;the&nbsp;Agent&nbsp;Builder&nbsp;workflow</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "974faeff",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "84bac6b9",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/bbd98b3b4f.png",
+          "caption": ""
+        },
+        {
+          "id": "32147b72",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "989aeb3b",
+          "type": "text",
+          "content": "<!--markdown-->\nAgent creation has three steps: **Agent Profile → Triggers → Review**.\n\n### Agent Profile\n\n| Field | Required | Description |\n| --- | --- | --- |\n| **Agent Name** | Yes | A clear, descriptive name for the agent |\n| **Description** | No | A short summary of what the agent does — displayed on the agent card |\n| **Instructions** | Yes | The system prompt — detailed instructions defining what the agent should do, what data to retrieve, and how to format its output |\n\n**Tips for writing effective instructions:**\n\n- Be specific about what data to retrieve and from which source\n- Specify the output format (e.g., a table with defined columns)\n- Include thresholds or conditions to flag (e.g., \"flag any incident not updated in the last 4 hours\")\n",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "eff0e7b0",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "e54ea182",
+          "type": "text",
+          "content": "<p>To&nbsp;help&nbsp;provide&nbsp;context&nbsp;and&nbsp;guidance&nbsp;while&nbsp;creating&nbsp;your&nbsp;first&nbsp;agent,&nbsp;please&nbsp;refer&nbsp;to&nbsp;the&nbsp;examples&nbsp;provided&nbsp;in&nbsp;<strong><a href=\"../appendix-b-sample-agent-prompts/\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;B:&nbsp;Sample&nbsp;Agent&nbsp;Prompts</a></strong>.&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;Appendix&nbsp;B&nbsp;contains&nbsp;several&nbsp;pre-built&nbsp;prompt&nbsp;examples&nbsp;that&nbsp;demonstrate&nbsp;best&nbsp;practices&nbsp;for&nbsp;structuring&nbsp;agent&nbsp;instructions,&nbsp;defining&nbsp;scope,&nbsp;and&nbsp;setting&nbsp;expected&nbsp;behaviors.&nbsp;You&nbsp;are&nbsp;welcome&nbsp;to&nbsp;explore&nbsp;and&nbsp;create&nbsp;agents&nbsp;based&nbsp;on&nbsp;any&nbsp;of&nbsp;the&nbsp;examples&nbsp;listed,&nbsp;and&nbsp;you&nbsp;are&nbsp;encouraged&nbsp;to&nbsp;experiment&nbsp;with&nbsp;multiple&nbsp;configurations&nbsp;throughout&nbsp;this&nbsp;lab.</p><p>However,&nbsp;for&nbsp;this&nbsp;first&nbsp;agent,&nbsp;please&nbsp;use&nbsp;the&nbsp;<strong><a href=\"../appendix-b-sample-agent-prompts/#meraki-daily-health-report-agent\" rel=\"noopener noreferrer\" target=\"_blank\">Meraki&nbsp;Daily&nbsp;Health&nbsp;Report</a></strong>&nbsp;example&nbsp;from&nbsp;Appendix&nbsp;B.&nbsp;This&nbsp;sample&nbsp;prompt&nbsp;is&nbsp;designed&nbsp;to&nbsp;instruct&nbsp;the&nbsp;agent&nbsp;to&nbsp;automatically&nbsp;gather&nbsp;and&nbsp;summarize&nbsp;key&nbsp;health&nbsp;metrics&nbsp;from&nbsp;your&nbsp;Meraki&nbsp;network&nbsp;environment&nbsp;—&nbsp;such&nbsp;as&nbsp;device&nbsp;connectivity&nbsp;status,&nbsp;alert&nbsp;summaries,&nbsp;and&nbsp;performance&nbsp;indicators&nbsp;—&nbsp;and&nbsp;present&nbsp;them&nbsp;in&nbsp;a&nbsp;structured,&nbsp;easy-to-read&nbsp;daily&nbsp;report&nbsp;format.&nbsp;Using&nbsp;this&nbsp;example&nbsp;as&nbsp;your&nbsp;starting&nbsp;point&nbsp;will&nbsp;ensure&nbsp;you&nbsp;have&nbsp;a&nbsp;consistent&nbsp;baseline&nbsp;configuration&nbsp;that&nbsp;aligns&nbsp;with&nbsp;the&nbsp;exercises&nbsp;and&nbsp;validation&nbsp;steps&nbsp;in&nbsp;the&nbsp;sections&nbsp;that&nbsp;follow.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "32cd6780",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "81ced4d1",
+          "type": "text",
+          "content": "<p>On&nbsp;the&nbsp;<strong>Agent&nbsp;Profile</strong>&nbsp;page,&nbsp;configure&nbsp;the&nbsp;following:</p><p></p><ol><li>Set&nbsp;the&nbsp;<strong>Agent&nbsp;name</strong>&nbsp;to:&nbsp;meraki-daily-health-report-<strong><em>Your-CCO-ID</em>&nbsp;(Please&nbsp;append&nbsp;your&nbsp;CCO&nbsp;ID&nbsp;to&nbsp;all&nbsp;agents&nbsp;you&nbsp;create&nbsp;to&nbsp;prevent&nbsp;conflicts)</strong></li><li>Set&nbsp;the&nbsp;<strong>Description</strong>&nbsp;to:&nbsp;&quot;<strong>Generates&nbsp;a&nbsp;Daily&nbsp;Meraki&nbsp;Health&nbsp;Report.</strong>&quot;</li><li>Set&nbsp;the&nbsp;<strong>Instructions&nbsp;Prompt</strong>&nbsp;using&nbsp;the&nbsp;detailed&nbsp;sample&nbsp;prompt&nbsp;from&nbsp;<strong><a href=\"../appendix-b-sample-agent-prompts/#meraki-daily-health-report-agent\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;B:&nbsp;Sample&nbsp;Agent&nbsp;Prompts</a></strong>,&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;which&nbsp;defines&nbsp;the&nbsp;agent&#39;s&nbsp;behavior&nbsp;and&nbsp;report&nbsp;structure.</li></ol><p></p><p>Once&nbsp;you&nbsp;have&nbsp;reviewed&nbsp;all&nbsp;three&nbsp;fields&nbsp;and&nbsp;confirmed&nbsp;the&nbsp;information&nbsp;is&nbsp;correct,&nbsp;click&nbsp;<strong>Continue</strong>&nbsp;to&nbsp;proceed&nbsp;to&nbsp;the&nbsp;next&nbsp;step.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "d4f4d90c",
+          "type": "callout",
+          "content": "<p>Due&nbsp;to&nbsp;the&nbsp;shared&nbsp;nature&nbsp;of&nbsp;the&nbsp;lab&nbsp;environment,&nbsp;when&nbsp;naming&nbsp;your&nbsp;Agent&nbsp;please&nbsp;<strong>ALWAYS</strong>&nbsp;append&nbsp;your&nbsp;<strong>CCO&nbsp;ID&nbsp;</strong>to&nbsp;the&nbsp;end&nbsp;of&nbsp;the&nbsp;agent&nbsp;name.&nbsp;This&nbsp;will&nbsp;ensure&nbsp;there&nbsp;are&nbsp;no&nbsp;conflicting&nbsp;agent&nbsp;names.</p><p></p><p>Example:&nbsp;<strong>meraki-daily-health-report-maokuma</strong></p>",
+          "callout_type": "caution",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "a65c3573",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "c9a3aeea",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/363ae56a0e.png",
+          "caption": ""
+        },
+        {
+          "id": "b7089f3a",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "551c8e6d",
+          "type": "text",
+          "content": "<p>On&nbsp;the&nbsp;triggers&nbsp;configuration&nbsp;page,&nbsp;configure&nbsp;the&nbsp;following&nbsp;agent&nbsp;settings:</p><p></p><ul><li>Set&nbsp;the&nbsp;Trigger&nbsp;mode&nbsp;to&nbsp;<strong>Ambient</strong></li><li>Set&nbsp;the&nbsp;Activation&nbsp;cadence&nbsp;to&nbsp;<strong>Daily</strong></li><li>Set&nbsp;the&nbsp;Local&nbsp;run&nbsp;time&nbsp;to&nbsp;<strong>09:00&nbsp;AM</strong></li><li>Leave&nbsp;the&nbsp;Max&nbsp;recurrences&nbsp;<strong>set&nbsp;to&nbsp;5</strong></li></ul><p></p><p>This&nbsp;means&nbsp;the&nbsp;agent&nbsp;will&nbsp;run&nbsp;<strong>automatically&nbsp;every&nbsp;day&nbsp;at&nbsp;9:00&nbsp;AM&nbsp;local&nbsp;time</strong>.</p><p></p><p>In&nbsp;the&nbsp;Trigger&nbsp;prompt&nbsp;field,&nbsp;enter&nbsp;<strong>&quot;Generate&nbsp;the&nbsp;Meraki&nbsp;Daily&nbsp;Health&nbsp;Report&quot;</strong>.&nbsp;This&nbsp;defines&nbsp;the&nbsp;instruction&nbsp;the&nbsp;agent&nbsp;will&nbsp;execute&nbsp;during&nbsp;its&nbsp;scheduled&nbsp;runs.</p><p></p><p>Click&nbsp;the&nbsp;<strong>Continue</strong>&nbsp;button&nbsp;in&nbsp;the&nbsp;bottom-right&nbsp;corner&nbsp;of&nbsp;the&nbsp;screen&nbsp;to&nbsp;proceed&nbsp;to&nbsp;the&nbsp;Review&nbsp;step&nbsp;and&nbsp;finalize&nbsp;the&nbsp;agent&nbsp;configuration.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "4fcdfbb1",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "5e8e86d7",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/fa375513ff.png",
+          "caption": ""
+        },
+        {
+          "id": "07fbe227",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "1c24030c",
+          "type": "callout",
+          "content": "<p><strong>Trigger&nbsp;Mode</strong>&nbsp;determines&nbsp;how&nbsp;the&nbsp;agent&nbsp;is&nbsp;activated</p><p></p><ul><li><strong>Ambient:</strong>&nbsp;Agent&nbsp;runs&nbsp;automatically&nbsp;on&nbsp;a&nbsp;schedule</li><li><strong>Interactive:</strong>&nbsp;Agent&nbsp;is&nbsp;available&nbsp;for&nbsp;users&nbsp;to&nbsp;invoke&nbsp;in&nbsp;Canvas&nbsp;<em>(</em><strong><em>coming&nbsp;soon</em></strong><em>)</em></li><li><strong>Ambient&nbsp;+&nbsp;Interactive:</strong>&nbsp;Agent&nbsp;runs&nbsp;both&nbsp;<em>(</em><strong><em>coming&nbsp;soon</em></strong><em>)</em></li></ul>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "4dfc65b2",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "a3317ebc",
+          "type": "text",
+          "content": "<p>Review&nbsp;the&nbsp;agent&nbsp;configuration&nbsp;summary,&nbsp;which&nbsp;displays&nbsp;the&nbsp;following:</p><p></p><ul><li>Agent&nbsp;name:&nbsp;meraki-daily-health-report-<strong><em>Your-CCO-ID</em>&nbsp;(Please&nbsp;append&nbsp;your&nbsp;CCO&nbsp;ID&nbsp;to&nbsp;all&nbsp;agents&nbsp;you&nbsp;create&nbsp;to&nbsp;prevent&nbsp;conflicts)</strong></li><li>Description:&nbsp;<strong>Generate&nbsp;a&nbsp;Daily&nbsp;Meraki&nbsp;Health&nbsp;Report</strong></li><li>Trigger&nbsp;type:&nbsp;<strong>Ambient</strong></li><li>Activation&nbsp;schedule:&nbsp;<strong>Runs&nbsp;daily&nbsp;at&nbsp;9:00&nbsp;AM&nbsp;local&nbsp;time</strong></li><li>Trigger&nbsp;prompt:&nbsp;<strong>Generate&nbsp;the&nbsp;Meraki&nbsp;Daily&nbsp;Report</strong></li></ul><p></p><p>Verify&nbsp;that&nbsp;all&nbsp;settings&nbsp;are&nbsp;correct&nbsp;before&nbsp;proceeding.&nbsp;Click&nbsp;the&nbsp;<strong>Create&nbsp;Agent</strong>&nbsp;button&nbsp;in&nbsp;the&nbsp;bottom-right&nbsp;corner&nbsp;of&nbsp;the&nbsp;screen&nbsp;to&nbsp;finalize&nbsp;and&nbsp;deploy&nbsp;your&nbsp;agent.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "047acdcd",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "d728eb45",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/45b5810d5d.png",
+          "caption": ""
+        },
+        {
+          "id": "f2e0917b",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "4eb06279",
+          "type": "text",
+          "content": "<h4>What&nbsp;Happens&nbsp;When&nbsp;You&nbsp;Click&nbsp;Create&nbsp;Agent</h4><p>Studio&nbsp;runs&nbsp;through&nbsp;a&nbsp;<strong>series&nbsp;of&nbsp;automated&nbsp;steps</strong>&nbsp;that&nbsp;typically&nbsp;take&nbsp;one&nbsp;to&nbsp;a&nbsp;few&nbsp;minutes:</p><p></p><ol><li><strong>Validating&nbsp;inputs</strong>&nbsp;—&nbsp;Checks&nbsp;that&nbsp;all&nbsp;required&nbsp;fields&nbsp;are&nbsp;present&nbsp;and&nbsp;correctly&nbsp;formatted.</li><li><strong>Selecting&nbsp;tools</strong>&nbsp;—&nbsp;Automatically&nbsp;identifies&nbsp;and&nbsp;scopes&nbsp;the&nbsp;MCP&nbsp;tools&nbsp;the&nbsp;agent&nbsp;needs&nbsp;based&nbsp;on&nbsp;its&nbsp;instructions&nbsp;and&nbsp;integrations.&nbsp;The&nbsp;agent&nbsp;only&nbsp;has&nbsp;access&nbsp;to&nbsp;the&nbsp;tools&nbsp;relevant&nbsp;to&nbsp;its&nbsp;role,&nbsp;which&nbsp;improves&nbsp;accuracy,&nbsp;reduces&nbsp;token&nbsp;usage,&nbsp;and&nbsp;increases&nbsp;speed.&nbsp;In&nbsp;a&nbsp;future&nbsp;release,&nbsp;you&nbsp;will&nbsp;be&nbsp;able&nbsp;to&nbsp;view&nbsp;and&nbsp;modify&nbsp;this&nbsp;tool&nbsp;scope&nbsp;directly.</li><li><strong>AI&nbsp;Defense&nbsp;reviewing</strong>&nbsp;—&nbsp;Scans&nbsp;the&nbsp;agent&nbsp;configuration&nbsp;for&nbsp;safety&nbsp;and&nbsp;security&nbsp;issues.</li><li><strong>Building&nbsp;manifest</strong>&nbsp;—&nbsp;Assembles&nbsp;the&nbsp;agent&#39;s&nbsp;runtime&nbsp;manifest.</li><li><strong>Validating&nbsp;configuration</strong>&nbsp;—&nbsp;Validates&nbsp;the&nbsp;full&nbsp;configuration&nbsp;package.</li><li><strong>Generating&nbsp;agent&nbsp;package</strong>&nbsp;—&nbsp;Generates&nbsp;the&nbsp;deployable&nbsp;agent&nbsp;artifact.</li><li><strong>Saving&nbsp;configuration</strong>&nbsp;—&nbsp;Persists&nbsp;the&nbsp;agent&nbsp;configuration.</li><li><strong>Opening&nbsp;launch&nbsp;setup</strong>&nbsp;—&nbsp;Initializes&nbsp;the&nbsp;agent&nbsp;and&nbsp;opens&nbsp;the&nbsp;confirmation&nbsp;page.</li></ol>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "a8aad72c",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "5a3cf267",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/d89ca2940b.png",
+          "caption": ""
+        },
+        {
+          "id": "5d40b75f",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "0d490645",
+          "type": "text",
+          "content": "<p>The&nbsp;<strong>meraki-daily-health-report</strong>&nbsp;agent&nbsp;has&nbsp;been&nbsp;successfully&nbsp;created&nbsp;and&nbsp;is&nbsp;now&nbsp;in&nbsp;<strong>Draft</strong>&nbsp;status,&nbsp;ready&nbsp;for&nbsp;validation.&nbsp;Review&nbsp;the&nbsp;Agent&nbsp;Summary&nbsp;panel&nbsp;on&nbsp;the&nbsp;right,&nbsp;which&nbsp;confirms&nbsp;that&nbsp;the&nbsp;agent&nbsp;is&nbsp;not&nbsp;yet&nbsp;deployed,&nbsp;is&nbsp;set&nbsp;to&nbsp;version&nbsp;<strong>v1</strong>,&nbsp;uses&nbsp;a&nbsp;<strong>Scheduled</strong>&nbsp;trigger,&nbsp;and&nbsp;is&nbsp;protected&nbsp;by&nbsp;<strong>Cisco&nbsp;AI&nbsp;Defense</strong>.&nbsp;Click&nbsp;<strong>View&nbsp;Agent</strong>&nbsp;to&nbsp;view&nbsp;the&nbsp;details&nbsp;of&nbsp;your&nbsp;agent.&nbsp;&nbsp;(<strong>We&nbsp;will&nbsp;NOT&nbsp;be&nbsp;testing&nbsp;the&nbsp;Agent</strong>)</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "05aadb27",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "07a4a02b",
+          "type": "callout",
+          "content": "<p>We&nbsp;will&nbsp;<strong>NOT</strong>&nbsp;be&nbsp;testing&nbsp;our&nbsp;agent&nbsp;in&nbsp;this&nbsp;lab.&nbsp;Instead,&nbsp;after&nbsp;reviewing&nbsp;and&nbsp;promoting&nbsp;your&nbsp;agent,&nbsp;you&nbsp;will&nbsp;examine&nbsp;a&nbsp;pre-built&nbsp;agent&nbsp;that&nbsp;is&nbsp;already&nbsp;running,&nbsp;called&nbsp;<strong>meraki-daily-health-report-GSX</strong></p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "7cca46ee",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "ea0f2eaf",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/7437c5c6c9.png",
+          "caption": ""
+        },
+        {
+          "id": "4237754f",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "b135db7e",
+          "type": "callout",
+          "content": "<p>We&nbsp;will&nbsp;not&nbsp;be&nbsp;testing&nbsp;the&nbsp;Agent&nbsp;live&nbsp;during&nbsp;this&nbsp;lab.&nbsp;Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;of&nbsp;the&nbsp;lab&nbsp;environment,&nbsp;the&nbsp;testing&nbsp;experience&nbsp;is&nbsp;not&nbsp;representative&nbsp;of&nbsp;real-world&nbsp;conditions,&nbsp;as&nbsp;hundreds&nbsp;of&nbsp;agents&nbsp;will&nbsp;be&nbsp;created&nbsp;simultaneously&nbsp;across&nbsp;all&nbsp;lab&nbsp;participants.&nbsp;This&nbsp;high&nbsp;volume&nbsp;of&nbsp;concurrent&nbsp;agent&nbsp;creation&nbsp;places&nbsp;unusual&nbsp;demand&nbsp;on&nbsp;the&nbsp;shared&nbsp;environment,&nbsp;which&nbsp;may&nbsp;result&nbsp;in&nbsp;degraded&nbsp;performance,&nbsp;unexpected&nbsp;errors,&nbsp;or&nbsp;inconsistent&nbsp;behavior&nbsp;that&nbsp;would&nbsp;not&nbsp;occur&nbsp;under&nbsp;normal&nbsp;circumstances.&nbsp;Therefore,&nbsp;<strong><u>PLEASE&nbsp;DO&nbsp;NOT&nbsp;TEST</u></strong>&nbsp;your&nbsp;agent&nbsp;at&nbsp;this&nbsp;time.</p>",
+          "callout_type": "caution",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "41c090c0",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "b8f82aa4",
+          "type": "text",
+          "content": "<p>Next,&nbsp;we&nbsp;will&nbsp;review&nbsp;the&nbsp;agent&nbsp;configuration&nbsp;and&nbsp;then&nbsp;promote&nbsp;the&nbsp;agent&nbsp;to&nbsp;production.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "e22b5341",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "67ca6b17",
+          "type": "text",
+          "content": "<p>Review&nbsp;the&nbsp;agent&nbsp;configuration,&nbsp;which&nbsp;contains&nbsp;detailed&nbsp;instructions&nbsp;for&nbsp;generating&nbsp;a&nbsp;structured&nbsp;six-section&nbsp;daily&nbsp;health&nbsp;report&nbsp;covering&nbsp;organization&nbsp;health,&nbsp;active&nbsp;alerts,&nbsp;device&nbsp;status,&nbsp;wireless&nbsp;performance,&nbsp;firmware&nbsp;compliance,&nbsp;and&nbsp;an&nbsp;executive&nbsp;summary.</p><p></p><p>Notice&nbsp;that&nbsp;the&nbsp;agent&nbsp;is&nbsp;<strong>Protected&nbsp;by&nbsp;AI&nbsp;Defense</strong>,&nbsp;which&nbsp;checks&nbsp;prompts,&nbsp;retrieved&nbsp;content,&nbsp;and&nbsp;tool&nbsp;calls&nbsp;to&nbsp;ensure&nbsp;write&nbsp;actions&nbsp;are&nbsp;gated&nbsp;and&nbsp;read&nbsp;tools&nbsp;are&nbsp;scoped&nbsp;to&nbsp;approved&nbsp;targets.</p><p>In&nbsp;the&nbsp;<strong>Release&nbsp;history</strong>&nbsp;section&nbsp;at&nbsp;the&nbsp;bottom&nbsp;of&nbsp;the&nbsp;page,&nbsp;observe&nbsp;that&nbsp;version&nbsp;<strong>v1</strong>&nbsp;is&nbsp;currently&nbsp;in&nbsp;a&nbsp;<strong>Candidate</strong>&nbsp;state.</p><p></p><p>Finally,&nbsp;&nbsp;in&nbsp;this&nbsp;example&nbsp;we&nbsp;click&nbsp;<strong>Promote&nbsp;to&nbsp;production</strong>&nbsp;to&nbsp;make&nbsp;this&nbsp;version&nbsp;the&nbsp;active&nbsp;production&nbsp;release.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9bc1dd2f",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "943143cc",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/fd706d11c5.png",
+          "caption": ""
+        },
+        {
+          "id": "30fcaa41",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "c1d026ed",
+          "type": "text",
+          "content": "<p>A&nbsp;confirmation&nbsp;dialog&nbsp;box&nbsp;appears&nbsp;asking&nbsp;whether&nbsp;you&nbsp;want&nbsp;to&nbsp;promote&nbsp;v1&nbsp;to&nbsp;production.&nbsp;<em>Notice&nbsp;that&nbsp;the&nbsp;dialog&nbsp;explains&nbsp;this&nbsp;will&nbsp;make&nbsp;v1&nbsp;the&nbsp;active&nbsp;production&nbsp;release&nbsp;used&nbsp;for&nbsp;activation&nbsp;and&nbsp;customer&nbsp;testing,&nbsp;replacing&nbsp;any&nbsp;version&nbsp;currently&nbsp;in&nbsp;production.</em></p><p></p><p>In&nbsp;the&nbsp;example&nbsp;we&nbsp;Click&nbsp;<strong>Promote&nbsp;to&nbsp;production</strong>&nbsp;to&nbsp;confirm&nbsp;the&nbsp;action&nbsp;and&nbsp;deploy&nbsp;v1&nbsp;as&nbsp;the&nbsp;production&nbsp;release.&nbsp;</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "d16e794f",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "03d3ed9e",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/d25f59e17d.png",
+          "caption": ""
+        },
+        {
+          "id": "fcfedc9d",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "d12a95de",
+          "type": "text",
+          "content": "<p>Once&nbsp;in&nbsp;production,&nbsp;you&nbsp;can:</p><p></p><ul><li><strong>Update&nbsp;the&nbsp;config</strong>&nbsp;—&nbsp;Edit&nbsp;the&nbsp;agent&#39;s&nbsp;profile&nbsp;or&nbsp;instructions&nbsp;to&nbsp;create&nbsp;a&nbsp;new&nbsp;version,&nbsp;test&nbsp;it,&nbsp;and&nbsp;promote&nbsp;it&nbsp;when&nbsp;ready</li><li><strong>Monitor&nbsp;runs</strong>&nbsp;—&nbsp;Check&nbsp;the&nbsp;<strong>Run</strong>&nbsp;tab&nbsp;to&nbsp;view&nbsp;execution&nbsp;history,&nbsp;outputs,&nbsp;and&nbsp;any&nbsp;errors</li><li><strong>Update&nbsp;the&nbsp;trigger</strong>&nbsp;—&nbsp;Go&nbsp;to&nbsp;the&nbsp;<strong>Trigger</strong>&nbsp;tab&nbsp;to&nbsp;change&nbsp;the&nbsp;cadence&nbsp;or&nbsp;trigger&nbsp;prompt</li><li><strong>Roll&nbsp;back</strong>&nbsp;—&nbsp;Promote&nbsp;any&nbsp;previously&nbsp;published&nbsp;version&nbsp;from&nbsp;the&nbsp;Release&nbsp;History&nbsp;table</li><li><strong>Delete&nbsp;the&nbsp;agent</strong>&nbsp;—&nbsp;Remove&nbsp;the&nbsp;agent&nbsp;entirely&nbsp;from&nbsp;the&nbsp;agent&nbsp;detail&nbsp;page&nbsp;if&nbsp;it&nbsp;is&nbsp;no&nbsp;longer&nbsp;needed</li></ul>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "e5a4a90b",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "a860f727",
+          "type": "callout",
+          "content": "<p>The&nbsp;final&nbsp;steps&nbsp;of&nbsp;this&nbsp;lab&nbsp;will&nbsp;involve&nbsp;reviewing&nbsp;the&nbsp;already&nbsp;running&nbsp;<strong>meraki-daily-health-report-GSX</strong>&nbsp;agent,&nbsp;which&nbsp;has&nbsp;been&nbsp;pre-configured&nbsp;in&nbsp;your&nbsp;environment.&nbsp;You&nbsp;will&nbsp;also&nbsp;explore&nbsp;the&nbsp;observability&nbsp;features&nbsp;and&nbsp;notifications&nbsp;associated&nbsp;with&nbsp;the&nbsp;scheduled&nbsp;agent&nbsp;runs.&nbsp;These&nbsp;steps&nbsp;are&nbsp;designed&nbsp;to&nbsp;give&nbsp;you&nbsp;visibility&nbsp;into&nbsp;how&nbsp;a&nbsp;fully&nbsp;operational&nbsp;agent&nbsp;behaves&nbsp;over&nbsp;time,&nbsp;including&nbsp;how&nbsp;it&nbsp;logs&nbsp;activity,&nbsp;surfaces&nbsp;insights,&nbsp;and&nbsp;delivers&nbsp;alerts.&nbsp;Please&nbsp;note&nbsp;that&nbsp;these&nbsp;steps&nbsp;will&nbsp;<strong>NOT</strong>&nbsp;be&nbsp;performed&nbsp;using&nbsp;the&nbsp;agent&nbsp;you&nbsp;created&nbsp;earlier&nbsp;in&nbsp;this&nbsp;lab&nbsp;—&nbsp;you&nbsp;will&nbsp;instead&nbsp;be&nbsp;observing&nbsp;the&nbsp;pre-configured&nbsp;agent&nbsp;to&nbsp;examine&nbsp;its&nbsp;output&nbsp;and&nbsp;scheduling&nbsp;behavior.</p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "a45ef122",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "74bdc39b",
+          "type": "text",
+          "content": "<p>Next,&nbsp;<strong>Click&nbsp;</strong>back&nbsp;on&nbsp;the&nbsp;<strong>Observability</strong>&nbsp;tab.&nbsp;This&nbsp;section&nbsp;displays&nbsp;a&nbsp;summary&nbsp;of&nbsp;all&nbsp;agent&nbsp;execution&nbsp;metrics&nbsp;available&nbsp;for&nbsp;review.</p><p></p><p>In&nbsp;the&nbsp;<strong>Recent&nbsp;executions</strong>&nbsp;table,&nbsp;you&nbsp;can&nbsp;see&nbsp;that&nbsp;our&nbsp;agent&nbsp;<strong>meraki-daily-health-report-GSX&nbsp;</strong>has&nbsp;been&nbsp;running&nbsp;version&nbsp;<strong>v1</strong>,&nbsp;which&nbsp;was&nbsp;triggered&nbsp;by&nbsp;the&nbsp;<strong>Scheduler</strong>&nbsp;and&nbsp;completed&nbsp;with&nbsp;a&nbsp;status&nbsp;of&nbsp;<strong>Passed</strong>.</p><p></p><p>Click&nbsp;<strong>Open&nbsp;run</strong>&nbsp;(on&nbsp;one&nbsp;of&nbsp;the&nbsp;past&nbsp;runs)&nbsp;to&nbsp;inspect&nbsp;the&nbsp;detailed&nbsp;execution&nbsp;trace&nbsp;and&nbsp;step-by-step&nbsp;results&nbsp;for&nbsp;this&nbsp;agent&nbsp;run.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "c7164d2e",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "88b64bc3",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/e84c0b801c.png",
+          "caption": ""
+        },
+        {
+          "id": "165bcdac",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "4c3e02d0",
+          "type": "text",
+          "content": "<p>Finally,&nbsp;<strong>click</strong>&nbsp;the&nbsp;<strong>Notifications&nbsp;Bell</strong>&nbsp;icon&nbsp;located&nbsp;in&nbsp;the&nbsp;<strong>top-right</strong>&nbsp;corner&nbsp;of&nbsp;the&nbsp;Cloud&nbsp;Control&nbsp;interface.&nbsp;This&nbsp;is&nbsp;where&nbsp;the&nbsp;outputs&nbsp;and&nbsp;results&nbsp;generated&nbsp;by&nbsp;your&nbsp;Ambient&nbsp;Agent&nbsp;will&nbsp;appear&nbsp;once&nbsp;it&nbsp;has&nbsp;completed&nbsp;its&nbsp;assigned&nbsp;tasks.&nbsp;A&nbsp;<strong>red&nbsp;dot</strong>&nbsp;next&nbsp;to&nbsp;the&nbsp;bell&nbsp;icon&nbsp;indicates&nbsp;that&nbsp;new&nbsp;notifications&nbsp;are&nbsp;available.&nbsp;Locate&nbsp;the&nbsp;notification&nbsp;labeled&nbsp;<strong>Agent&nbsp;Builder</strong>&nbsp;—&nbsp;it&nbsp;will&nbsp;include&nbsp;a&nbsp;summary&nbsp;of&nbsp;the&nbsp;completed&nbsp;task&nbsp;and&nbsp;the&nbsp;name&nbsp;of&nbsp;the&nbsp;agent&nbsp;that&nbsp;generated&nbsp;it.&nbsp;<strong>Click&nbsp;See&nbsp;Report</strong>,&nbsp;then&nbsp;review&nbsp;the&nbsp;agent&#39;s&nbsp;findings,&nbsp;generated&nbsp;content,&nbsp;or&nbsp;recommended&nbsp;actions.&nbsp;Take&nbsp;a&nbsp;moment&nbsp;to&nbsp;verify&nbsp;that&nbsp;the&nbsp;output&nbsp;aligns&nbsp;with&nbsp;the&nbsp;instructions&nbsp;and&nbsp;goals&nbsp;you&nbsp;configured&nbsp;for&nbsp;the&nbsp;agent.</p>",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "acbc08f3",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "43ea84f1",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/ec3c34f2a5.png",
+          "caption": ""
+        },
+        {
+          "id": "a1c24540",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "53283a27",
+          "type": "screenshot",
+          "content": "",
+          "callout_type": "",
+          "path": "screenshots/6b8b645c42.png",
+          "caption": ""
+        },
+        {
+          "id": "f725fb68",
+          "type": "callout",
+          "content": "<p>Excellent work completing Section 3! You have successfully built, tested, and promoted your first production AI agent on Cisco Cloud Control — taking it all the way from a blank profile to a live, scheduled agent running autonomously in production. The skills you just practiced are exactly what you will need to tackle the Team Challenge ahead. 🎉</p>",
+          "callout_type": "congratulations",
+          "path": "",
           "caption": ""
         }
       ],
@@ -407,13 +1528,46 @@
     },
     {
       "id": "263ef226",
-      "title": "Troubleshoot a Network Issue - Agentic Ops",
-      "overview": "In this section you will use Agent Skills and Integrations to identify and troubleshoot a network issue. You will explore how agentic operations can streamline the diagnostic process by automating key investigative steps.",
+      "order": 4,
+      "title": "Section 4: Team Challenge - Agentic Ops",
+      "overview": "In this section, teams will compete in two hands-on challenges that put their AI and agentic skills to the test. First, teams will engineer the most effective AI Canvas prompts to generate a comprehensive Root Cause Analysis for a real network or security scenario, then iterate, compare, and present their approach to a proctor. Second, teams will design and build a fully functional AI agent using Agent Builder in Cisco Cloud Control that solves a real operational problem and can be demonstrated live to a customer.",
       "screenshots": [],
       "blocks": [
         {
-          "id": "0455b2fb",
-          "type": "screenshot",
+          "id": "0e90e911",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9011f434",
+          "type": "callout",
+          "content": "<p>Work&nbsp;as&nbsp;a&nbsp;team&nbsp;to&nbsp;craft&nbsp;the&nbsp;most&nbsp;effective&nbsp;AI&nbsp;Canvas&nbsp;prompts&nbsp;to&nbsp;solve&nbsp;one&nbsp;of&nbsp;the&nbsp;&nbsp;scenarios&nbsp;in&nbsp;Appendix&nbsp;C.&nbsp;Your&nbsp;goal&nbsp;is&nbsp;to&nbsp;engineer&nbsp;a&nbsp;prompt&nbsp;—&nbsp;or&nbsp;a&nbsp;sequence&nbsp;of&nbsp;prompts&nbsp;—&nbsp;that&nbsp;produces&nbsp;a&nbsp;comprehensive&nbsp;<strong>Root&nbsp;Cause&nbsp;Analysis&nbsp;(RCA)</strong>&nbsp;for&nbsp;a&nbsp;real&nbsp;network&nbsp;or&nbsp;security&nbsp;issue&nbsp;relevant&nbsp;to&nbsp;your&nbsp;environment.</p><p>A&nbsp;strong&nbsp;RCA&nbsp;should&nbsp;clearly&nbsp;identify:</p><ul><li><strong>The</strong>&nbsp;<strong>problem&nbsp;statement</strong>&nbsp;—&nbsp;what&nbsp;is&nbsp;happening&nbsp;and&nbsp;where</li><li><strong>Contributing&nbsp;factors</strong>&nbsp;—&nbsp;conditions&nbsp;that&nbsp;led&nbsp;to&nbsp;or&nbsp;worsened&nbsp;the&nbsp;issue</li><li><strong>Root&nbsp;cause(s)</strong>&nbsp;—&nbsp;the&nbsp;underlying&nbsp;reason&nbsp;the&nbsp;issue&nbsp;occurred</li><li><strong>Impact&nbsp;assessment</strong>&nbsp;—&nbsp;what&nbsp;is&nbsp;affected&nbsp;and&nbsp;how&nbsp;severely</li><li><strong>Recommended&nbsp;remediation&nbsp;steps</strong>&nbsp;—&nbsp;clear,&nbsp;actionable&nbsp;next&nbsp;steps</li></ul><p></p><p>As&nbsp;a&nbsp;team,&nbsp;iterate&nbsp;on&nbsp;your&nbsp;prompts,&nbsp;compare&nbsp;outputs,&nbsp;and&nbsp;agree&nbsp;on&nbsp;the&nbsp;approach&nbsp;that&nbsp;produces&nbsp;the&nbsp;clearest&nbsp;and&nbsp;most&nbsp;complete&nbsp;RCA.&nbsp;Use&nbsp;the&nbsp;<strong>Appendix&nbsp;A:&nbsp;Sample&nbsp;AI&nbsp;Prompts</strong>&nbsp;as&nbsp;a&nbsp;starting&nbsp;point&nbsp;—&nbsp;build&nbsp;on&nbsp;them,&nbsp;combine&nbsp;them,&nbsp;or&nbsp;go&nbsp;beyond&nbsp;them&nbsp;entirely.</p><p></p><p>Once&nbsp;your&nbsp;team&nbsp;has&nbsp;agreed&nbsp;on&nbsp;the&nbsp;best-performing&nbsp;prompt&nbsp;and&nbsp;validated&nbsp;the&nbsp;quality&nbsp;of&nbsp;its&nbsp;output,&nbsp;nominate&nbsp;a&nbsp;spokesperson&nbsp;to&nbsp;<strong>present&nbsp;your&nbsp;findings&nbsp;to&nbsp;your&nbsp;assigned&nbsp;proctor</strong>.&nbsp;Be&nbsp;prepared&nbsp;to&nbsp;walk&nbsp;through:</p><ul><li>The&nbsp;prompt(s)&nbsp;you&nbsp;crafted&nbsp;and&nbsp;any&nbsp;iterations&nbsp;you&nbsp;made&nbsp;along&nbsp;the&nbsp;way</li><li>Why&nbsp;your&nbsp;team&nbsp;selected&nbsp;this&nbsp;approach&nbsp;over&nbsp;other&nbsp;candidates</li><li>The&nbsp;RCA&nbsp;output&nbsp;it&nbsp;produced&nbsp;and&nbsp;how&nbsp;it&nbsp;applies&nbsp;to&nbsp;your&nbsp;lab&nbsp;pod&nbsp;scenario</li><li>How&nbsp;you&nbsp;would&nbsp;use&nbsp;this&nbsp;in&nbsp;a&nbsp;real&nbsp;customer&nbsp;demonstration</li></ul><p></p><p>Proctors&nbsp;will&nbsp;evaluate&nbsp;each&nbsp;team&nbsp;on&nbsp;<strong>prompt&nbsp;quality,&nbsp;RCA&nbsp;completeness,&nbsp;and&nbsp;clarity&nbsp;of&nbsp;presentation</strong>.&nbsp;The&nbsp;team&nbsp;that&nbsp;demonstrates&nbsp;the&nbsp;most&nbsp;effective&nbsp;and&nbsp;well-reasoned&nbsp;approach&nbsp;will&nbsp;be&nbsp;recognized&nbsp;as&nbsp;the&nbsp;<strong>winning&nbsp;team</strong>.&nbsp;Good&nbsp;luck!&nbsp;🏆</p>",
+          "callout_type": "team_challenge",
+          "path": "",
+          "caption": "🏆 Team Challenge — AI Canvas RCA"
+        },
+        {
+          "id": "8a1f3d2e",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "2af45611",
+          "type": "callout",
+          "content": "<p>Now it is time to put your Agent Builder skills to the ultimate test. As a team, design and build the <strong>most creative, useful, and impressive AI agent</strong> you can using Agent Builder in Cisco Cloud Control.</p><p>Your agent should solve a real operational problem relevant to your lab environment. There are no restrictions on the use case — the only requirement is that it must be functional, demonstrable, and something you could confidently show to a customer. Think about what makes an agent truly valuable: the tools it has access to, the context it understands, and the outcomes it can drive autonomously.</p><p>Consider the following as inspiration:</p><ul><li>An agent that monitors for anomalies and automatically triggers a diagnostic workflow</li><li>An agent that integrates ServiceNow to create and resolve tickets based on real-time infrastructure events</li><li>An agent that performs a cross-domain health check across Meraki, Secure Access, and Catalyst SD-WAN</li><li>An agent that guides a junior engineer through a remediation process step by step</li><li>Or something entirely your own — the more creative the better</li></ul><p>When your agent is ready, nominate a spokesperson and <strong>demonstrate it live to your assigned proctor</strong>. Your presentation should cover:</p><ul><li>The <strong>problem or use case</strong> your agent addresses</li><li>How the agent is <strong>configured</strong> — tools, context, triggers, and behavior</li><li>A <strong>live demonstration</strong> showing the agent in action</li><li>The <strong>business value</strong> — why a customer would want this agent and what outcome it delivers</li></ul><p>Proctors will evaluate each team on <strong>creativity, technical execution, and quality of the customer-facing narrative</strong>. The team with the most compelling and well-executed agent will be crowned the <strong>Agent Builder Champions</strong>. Good luck! 🏆</p>",
+          "callout_type": "team_challenge",
+          "path": "",
+          "caption": "🏆 Team Challenge — Agent Builder"
+        },
+        {
+          "id": "ab52d8aa",
+          "type": "divider",
           "content": "",
           "callout_type": "",
           "path": "",
@@ -421,14 +1575,152 @@
         }
       ],
       "steps": []
+    },
+    {
+      "id": "d50cc8a7",
+      "order": 5,
+      "title": "Appendix A: Sample AI Prompts",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "c1d02b91",
+          "order": 1,
+          "title": "Sample Prompts for AI Assistant and Agentic Canvas",
+          "instruction": "",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [
+            {
+              "id": "84aa1521",
+              "type": "callout",
+              "content": "<p>Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;constraints&nbsp;of&nbsp;this&nbsp;lab,&nbsp;Intersight&nbsp;and&nbsp;Nexus&nbsp;Dashboard&nbsp;products&nbsp;are&nbsp;not&nbsp;available&nbsp;for&nbsp;testing&nbsp;prompts.&nbsp;Please&nbsp;consider&nbsp;them&nbsp;references&nbsp;for&nbsp;the&nbsp;normal&nbsp;dCloud&nbsp;demo&nbsp;environment.</p>",
+              "callout_type": "caution",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "fcc59eba",
+              "type": "text",
+              "content": "<!--markdown-->\nThis appendix contains a curated collection of **known-good prompts** that have been tested and validated within this lab environment. These prompts are designed to be used directly with the **AI Assistant** or the **AI Agentic Canvas** inside Cisco Cloud Control to produce high-quality, actionable results.\n\nThroughout the lab, you will find references back to this appendix for relevant prompts at each stage. You are encouraged to use these prompts as a starting point — experiment with variations, combine them, or use them as inspiration for building your own agentic workflows. The more you interact with the AI interfaces using well-formed prompts, the richer the outputs you will receive.\n\nPrompts are organized by product integration so you can quickly locate the right prompt for the context you are working in.\n\n### Meraki Dashboard\n\n```\nHow is my organization doing?\n```\n\n```\nAre there any critical alerts?\n```\n\n```\nShow my WAN port utilization.\n```\n\n```\nShow my WAN port status.\n```\n\n```\nSD-WAN uplink/WAN port status across your fabric\n```\n\n```\nMeraki appliance uplink status for the Mexico City network\n```\n\n```\nyes please pull real-time client usage data directly from Meraki for that network\n```\n\n### ThousandEyes\n\n```\nAre there any outages affecting my monitored services right now?\n```\n\n```\nWhat are the current latency and packet loss metrics for my critical tests?\n```\n\n```\nAre there any anomalies in my ThousandEyes tests?\n```\n\n### Nexus Dashboard\n\n```\nIs my data center fabric healthy right now?\n```\n\n```\nGive me an overall health summary of my data center fabrics.\n```\n\n```\nAre there any critical issues across my data center fabrics?\n```\n\n```\nWhich fabric components need attention today?\n```\n\n```\nShow me a health overview of all fabrics managed by Nexus Dashboard.\n```\n\n### Hyperfabric\n\n```\nShow me all devices discovered in my Nexus Hyperfabric organization.\n```\n\n```\nAre any devices in my fabric unable to communicate?\n```\n\n```\nAre there any reachability issues between endpoints in my fabric?\n```\n\n```\nShow me all endpoints currently connected to my fabric and their locations.\n```\n\n```\nShow me the topology of my Nexus Hyperfabric deployment.\n```\n\n```\nCan I add any connections to my fabrics?\n```\n\n### Intersight\n\n```\nWhich servers are running the oldest firmware version?\n```\n\n```\nAre there any storage drives in a degraded or failed state?\n```\n\n```\nList all servers with inactive or disconnected network adapters.\n```\n\n```\nWho made changes to my server profiles in the last 24 hours?\n```\n\n```\nGive me an overall health summary of my compute infrastructure.\n```\n\n### Secure Access\n\n```\nwhy can lee chang not access jira via ZTA in secure access?\n```\n\n### Secure Firewall\n\n```\nWhat is the current status of all my site-to-site VPN tunnels?\n```\n\n```\nAre there any IKE negotiation failures on my VPN tunnels?\n```\n\n```\nWhich tunnels have had the most disruptions this month?\n```\n\n```\nWhat are the best practices for site-to-site VPN configuration?\n```\n\n### Catalyst SD-WAN\n\n```\nGive me a summary of my network and application health.\n```\n\n```\nGive me a summary of my SD-WAN network and application health.\n```\n\n```\nCan you show the Rx/Tx bandwidth rates, utilization, and peak usage for all my WAN links?\n```\n\n```\nHow are my applications performing, and are there any SLA violations in my SD-WAN network?\n```\n\n```\nWhat is the usage of applications in my SD-WAN network?\n```\n\n```\nGive me an overall health summary of my Catalyst SD-WAN deployment.\n```\n\n### Cisco Collaboration Hub\n\n```\nShow me poor quality meetings for Dace Waters\n```\n\n```\ncan you diagnose why the device called Jane Rodriquez DM had issues in its last meeting. Conference ID 721823729975301029. Please provide the ThousandEyes network path as well.\n```\n\n```\nShow me calls with poor quality for Victoria Price\n```\n\n```\nAnalyze calls in the last 7 days for device Michael Chang 9871\n```\n\n```\nTell me about the last meeting in the SJC Conf Room\n```\n\n### Splunk Cloud\n\n```\nHow is the health of my Splunk deployment?\n```\n\n```\nWhat is the p95 latency per Splunk service for the last 24 hours?\n```\n\n```\nSummarize any alerts from our Splunk system\n```\n\n```\nShow any failed Splunk login attempts in the last 24 hours grouped by user\n```\n",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "e302dafb",
+      "order": 6,
+      "title": "Appendix B: Sample Agent Prompts",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "cff83088",
+          "order": 1,
+          "title": "Agent Instruction Prompts for Agent Builder",
+          "instruction": "",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [
+            {
+              "id": "89128634",
+              "type": "text",
+              "content": "<!--markdown-->\nThis appendix provides ready-to-use agent instruction prompts — the full text you paste into the **Instructions** field when building an agent in Agent Builder. Unlike the conversational prompts in Appendix A which are typed into the AI Canvas chat, these prompts define an agent's **persistent behavior and reporting logic**. Each agent runs autonomously on a schedule or trigger, executing the instructions you provide every time it fires.\n\nUse these prompts as a foundation. You can copy them directly into Agent Builder as-is to get a working agent immediately, or use them as a starting point and customize the sections, thresholds, and output format to match your organization's specific needs.\n\n---\n\n## Meraki Daily Health Report Agent\n\n### What This Agent Does\n\nThe **Meraki Daily Health Report** agent (`meraki-daily-health-report-Your-CCO-ID`) is designed to run on a recurring schedule and automatically generate a comprehensive operational health report for your entire Meraki organization. Instead of manually checking dashboards each morning, this agent retrieves live data across five key areas and assembles them into a single structured report your team can act on immediately.\n\nEach time the agent runs it produces:\n\n- **Organization Health Summary** — overall assurance scores and networks with poor performance\n- **Active Alerts** — open critical and warning alerts across all networks, presented in a prioritized table\n- **Device Status Overview** — counts of online, alerting, offline, and dormant devices with a list of anything needing attention\n- **Wireless Performance** — latency, connection success rates, and client onboarding metrics with automatic flagging of networks that fall below threshold\n- **Firmware Compliance** — how many devices are current versus pending upgrades, and any scheduled upgrade dates\n- **Executive Summary** — a 3–5 sentence summary at the top with a traffic light indicator (🟢 Green / 🟡 Yellow / 🔴 Red) so the health posture is immediately clear at a glance\n\nThis agent is ideal for **daily NOC briefings**, **customer health reviews**, or as the foundation for a more advanced agent that triggers tickets or notifications when thresholds are breached.\n\n### Agent Configuration\n\n| Field | Value |\n| --- | --- |\n| **Agent Name** | `meraki-daily-health-report-Your-CCO-ID` |\n| **Trigger** | Ambient (scheduled — recommended: daily) |\n| **Integration Required** | Meraki Dashboard |\n| **Output Format** | Structured Markdown report |\n\n### Instructions Prompt\n\nCopy the prompt below and paste it into the **Instructions** field in Agent Builder:\n\n<div style=\"position:relative;background:#1e2a3a;border:1px solid #2a3f5f;border-radius:6px;padding:1.2rem 1rem;margin:1rem 0\">\n<button onclick=\"navigator.clipboard.writeText(this.nextElementSibling.innerText).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})\" style=\"position:absolute;top:.6rem;right:.6rem;background:#0d6efd;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.72rem;cursor:pointer\">Copy</button>\n<pre style=\"margin:0;white-space:pre-wrap;word-break:break-word;font-size:.68rem;line-height:1.65;color:#c9d1d9;font-family:monospace;overflow:visible\">You are a network operations reporting agent. Generate a structured daily health report for the Meraki organization ID 618681998810021965. The report must include the following sections in order.\n\nSECTION 1 — ORGANIZATION HEALTH SUMMARY Retrieve the organization assurance scores and performance data. Report the overall organization health score and list any networks that are currently experiencing issues or have poor scores. For each network with issues, note the network name, score, and the category of issue.\n\nSECTION 2 — ACTIVE ALERTS Retrieve all organization health alerts. Focus on open critical and warning alerts. Present them in a table with columns: Alert Type, Severity, Affected Network, Affected Device, Time Detected. If there are more than ten open alerts, show the top ten by severity and note how many additional alerts exist.\n\nSECTION 3 — DEVICE STATUS OVERVIEW Retrieve detailed device information for the organization. Produce a summary table showing device counts by status: online, alerting, offline, dormant. List any devices that are currently offline or alerting with their name, model, network, and last reported time.\n\nSECTION 4 — WIRELESS PERFORMANCE Retrieve wireless assurance and performance data. Report average wireless latency, connection success rate, and client onboarding success rate. Flag any networks where latency exceeds 100ms or connection success drops below 90 percent.\n\nSECTION 5 — FIRMWARE COMPLIANCE Retrieve organization firmware upgrade information. Report how many devices are on the latest firmware versus how many have pending upgrades. List any scheduled upgrades with their target date and affected networks.\n\nSECTION 6 — EXECUTIVE SUMMARY At the top of the report, provide a three to five sentence executive summary highlighting: the overall health posture, the number of critical alerts, any networks that need immediate attention, and whether firmware is up to date. Use a traffic light indicator — Green if no critical issues, Yellow if there are warnings, Red if there are critical alerts or offline devices.\n\nFormat the entire report using clear markdown headers for each section. Use tables wherever data is tabular. Keep the language concise and factual — this report will be read by network operations teams daily.</pre>\n</div>\n\n---\n\n## Cross-Domain Infrastructure Health Report Agent\n\n### What This Agent Does\n\nThe **Cross-Domain Infrastructure Health Report** agent (`cross-domain-infrastructure-health-report-Your-CCO-ID`) produces a single unified view of your entire Cisco infrastructure across three domains in one report. Instead of checking Intersight, Nexus Dashboard, and Meraki separately, this agent pulls data from all three simultaneously and surfaces any unhealthy device — regardless of domain — in a single consolidated flags table.\n\nEach time the agent runs it produces:\n\n- **Executive Summary** — one-paragraph overview plus a per-domain table showing total devices, healthy count, needs-attention count, and overall status\n- **Cross-Domain Flags** — a single consolidated table of every device across all three domains that is not fully healthy, sorted by severity\n- **Domain Detail** — separate inventory tables for Compute (Intersight), Fabric (Nexus Hyperfabric / Nexus Dashboard), and Network (Meraki)\n- **Recommended Actions** — grouped by priority (Critical / High / Medium) with specific device and domain references\n\nThis agent is ideal for **daily infrastructure stand-ups**, **NOC dashboards**, or **executive briefings** where you need a single health snapshot across your entire Cisco estate without switching between platforms.\n\n### Agent Configuration\n\n| Field | Value |\n| --- | --- |\n| **Agent Name** | `cross-domain-infrastructure-health-report-Your-CCO-ID` |\n| **Trigger** | Ambient (scheduled — recommended: daily or hourly) |\n| **Integrations Required** | Intersight, Nexus Hyperfabric, Nexus Dashboard, Meraki |\n| **Output Format** | Structured Markdown report with tables |\n\n### Instructions Prompt\n\nCopy the prompt below and paste it into the **Instructions** field in Agent Builder:\n\n<div style=\"position:relative;background:#1e2a3a;border:1px solid #2a3f5f;border-radius:6px;padding:1.2rem 1rem;margin:1rem 0\">\n<button onclick=\"navigator.clipboard.writeText(this.nextElementSibling.innerText).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})\" style=\"position:absolute;top:.6rem;right:.6rem;background:#0d6efd;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.72rem;cursor:pointer\">Copy</button>\n<pre style=\"margin:0;white-space:pre-wrap;word-break:break-word;font-size:.68rem;line-height:1.65;color:#c9d1d9;font-family:monospace;overflow:visible\">You are a cross-domain infrastructure monitoring agent for a Cisco environment. Your job is to produce a single unified health report that spans three domains: COMPUTE (Cisco Intersight managed servers), FABRIC (Cisco Nexus Hyperfabric fabrics and Nexus Dashboard), and NETWORK (Cisco Meraki networks/devices).\n\nWhat to do on every run:\n\nCOMPUTE: Fetch all Cisco Intersight managed servers with their health status, power state, and any alarms.\nFABRIC: Fetch all Nexus Hyperfabric fabrics and their nodes, plus any Nexus Dashboard fabric anomalies.\nNETWORK: Fetch Meraki organizations/networks and device health, flagging offline or alerting devices.\nProduce the report in Markdown with these sections:\n\nCross-Domain Infrastructure Health Report\nGenerated: &lt;current UTC timestamp&gt;\n\nExecutive Summary\nOne short paragraph plus a table with one row per domain (Compute, Fabric, Network) showing: Domain | Total Devices | Healthy | Needs Attention | Overall Status.\n\nCross-Domain Flags - Requiring Attention\nA single consolidated table of every device across ALL domains that is not fully healthy. Columns: Domain | Device | Type | Status | Issue. Sort with the most severe first.\n\nDomain Detail\nThree subsections (### Compute, ### Fabric, ### Network). In each, give a short inventory table of that domain&#x27;s devices with their key health fields.\n\nRecommended Actions\nGroup by priority (Critical, High, Medium). Reference the specific device and domain for each action.\n\nAt the very end append two lines exactly:\n[SUMMARY: &lt;one-line summary of total flagged across all domains&gt;]\n[SEVERITY: &lt;low|medium|high&gt;]\n\nRules:\n\nUse ONLY real data returned by the Cisco tools. Never invent devices, serials, or IPs.\nIf a domain&#x27;s tools return no data or error, state that clearly in that domain&#x27;s section and continue with the other domains rather than failing the whole report.\nKeep it concise and scannable. Prefer tables over long paragraphs.</pre>\n</div>\n\n---\n\n## Intersight Server Health Report Agent\n\n### What This Agent Does\n\nThe **Intersight Server Health Report** agent (`intersight-server-health-report-Your-CCO-ID`) gives you a complete snapshot of every server managed by Cisco Intersight in your tenant — both blade and rack-mount compute — in a single structured table. It runs on a schedule and automatically flags any server that is not healthy or not powered on, so your team never has to manually check each server individually.\n\nEach time the agent runs it produces:\n\n- **Server Inventory Table** — every managed server with columns for Server Name, Model, Serial Number, Health Status, Power State, Firmware Version, and Management IP\n- **Summary Section** — total server count, breakdown by health status (Healthy / Warning / Critical), and an explicit flags list of any server that needs attention\n- **Clean no-issues confirmation** — if everything is healthy, the agent explicitly states \"No issues detected\" so you know the report ran successfully\n\nThis agent is ideal for **hourly infrastructure monitoring**, **pre-maintenance checks**, or as a **first responder tool** that tells your team exactly which servers need attention before diving into Intersight directly.\n\n### Agent Configuration\n\n| Field | Value |\n| --- | --- |\n| **Agent Name** | `intersight-server-health-report-Your-CCO-ID` |\n| **Trigger** | Ambient (scheduled — recommended: hourly) |\n| **Integration Required** | Cisco Intersight |\n| **Output Format** | Markdown table + summary |\n\n### Instructions Prompt\n\nCopy the prompt below and paste it into the **Instructions** field in Agent Builder:\n\n<div style=\"position:relative;background:#1e2a3a;border:1px solid #2a3f5f;border-radius:6px;padding:1.2rem 1rem;margin:1rem 0\">\n<button onclick=\"navigator.clipboard.writeText(this.nextElementSibling.innerText).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})\" style=\"position:absolute;top:.6rem;right:.6rem;background:#0d6efd;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.72rem;cursor:pointer\">Copy</button>\n<pre style=\"margin:0;white-space:pre-wrap;word-break:break-word;font-size:.68rem;line-height:1.65;color:#c9d1d9;font-family:monospace;overflow:visible\">You are a reporting agent for Cisco Intersight. On each run, query Cisco Intersight for all managed servers in this tenant (both blade and rack-mount compute). Produce an inventory and health report.\n\nFormat the output as a Markdown table with these columns: Server Name, Model, Serial Number, Health Status, Power State, Firmware Version, Management IP.\n\nAfter the table, add a short Summary section that includes: total number of servers, a breakdown of count by health status (Healthy / Warning / Critical), and an explicit Flags list calling out any server whose health status is not Healthy or whose power state is not On. If there are no issues, say &#x27;No issues detected.&#x27;\n\nOnly use data returned by the Intersight tools. Do not fabricate or guess values. If a field is unavailable, show &#x27;N/A&#x27;. If no servers are found, state that clearly.</pre>\n</div>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            }
+          ],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "d5ba9e45",
+      "order": 0,
+      "title": "Appendix C: Scenarios",
+      "overview": "This appendix contains the two scenario briefs for the Section 4 Team Challenge. Each scenario places your team inside a real operational situation at a specific branch site — your job is to use AI Canvas to investigate, identify every active fault condition, and build a complete root cause analysis. No hints, no prescribed steps, no suggested prompts: your team decides how to approach it, and you'll be evaluated on the quality of your RCA and the creativity of your prompt engineering. If you get stuck or want to compare your approach after the challenge, Appendix D: Investigation Guide contains a worked example for each scenario.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "66877992",
+          "order": 1,
+          "title": "Scenario 1 — Buenos Aires",
+          "instruction": "**The Situation**\n\nIt is Monday morning and the Buenos Aires branch is on fire. Complaints are flooding the helpdesk — users cannot reach internal applications, VoIP calls are dropping mid-session, and the NOC dashboard is lit with alerts. A change window ran over the weekend: a new access switch was added to the floor and a firewall policy update was pushed. Nothing has been formally verified since. Your team has full access to the Cisco Cloud Control environment — Meraki, ThousandEyes, Catalyst SD-WAN, and AI Canvas — and no one has touched a CLI. It is your job to figure out what happened.\n\n---\n\n**Your Mission**\n\nUse AI Canvas in Cisco Cloud Control to investigate the Buenos Aires site, identify every active fault condition, and produce a complete Root Cause Analysis (RCA) ready to present to your proctor.\n\n---\n\n!!! warning \"Active Fault Conditions\"\n    There are **6 active fault conditions** at this site. Your team must identify all of them.\n\n---\n\n**What a Strong RCA Looks Like**\n\n- **Problem statement** — what is happening and where\n- **Contributing factors** — conditions that led to or worsened the issue\n- **Root cause(s)** — the underlying reason the issue occurred\n- **Impact assessment** — what is affected and how severely\n- **Recommended remediation steps** — clear, actionable next steps\n\n---\n\n**Proctor Presentation**\n\nWhen you are ready to present, your proctor will ask you to:\n\n- Walk through the prompts you used and explain how your investigation evolved across iterations\n- Describe the relationships you found between fault conditions and how you connected them\n- Present your complete RCA covering all six fault conditions\n- Explain how you would deliver this investigation to a customer in a live demo\n\n---\n\n*If your team gets stuck, refer to [Appendix D: Investigation Guide](../appendix-d-investigation-guide/) for a worked example using this scenario.*",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "cca5a925",
+          "order": 2,
+          "title": "Scenario 2 — Mexico City",
+          "instruction": "**The Situation**\n\nIt is Tuesday afternoon. The Mexico City branch is down — partially. The helpdesk queue is growing and the calls are frustrating because users cannot describe the problem consistently. Some things work. Some do not. Public internet is reachable. Internal applications are not. Nobody can get to the intranet. Internal hostnames are not resolving. Meanwhile, the NOC has a device that has been completely silent since last night — no management polling responses, no telemetry, nothing. Overnight, the access layer received a scheduled firmware upgrade as part of a maintenance window. Post-upgrade verification was never completed. Nobody signed off on a clean bill of health before the team went home. Now it is Tuesday afternoon, the branch is degraded, and the business is asking for answers. Your team has full access to Cisco Cloud Control — Meraki, ThousandEyes, and AI Canvas. No CLI access yet.\n\n---\n\n**Your Mission**\n\nUse AI Canvas in Cisco Cloud Control to investigate the Mexico City site, identify every active fault condition, and produce a complete Root Cause Analysis ready to present to your proctor.\n\n---\n\n!!! warning \"Active Fault Conditions\"\n    There are **3 active fault conditions** at this site. Your team must identify all of them.\n\n---\n\n**What a Strong RCA Looks Like**\n\n- **Problem statement** — what is happening and where\n- **Contributing factors** — conditions that led to or worsened the issue\n- **Root cause(s)** — the underlying reason the issue occurred\n- **Impact assessment** — what is affected and how severely\n- **Recommended remediation steps** — clear, actionable next steps\n\n---\n\n**Proctor Presentation**\n\nWhen you are ready to present, your proctor will ask you to:\n\n- Walk through your prompt approach and explain any iterations or pivots you made during the investigation\n- Describe the relationships you found between the fault conditions\n- Present your complete RCA covering all fault conditions\n- Explain how you would walk a customer through this investigation in a live demo context\n\n---\n\n*If your team gets stuck, refer to [Appendix D: Investigation Guide](../appendix-d-investigation-guide/) for a worked example using this scenario.*",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
+    },
+    {
+      "id": "f8a3c21e",
+      "order": 8,
+      "title": "Appendix D: Investigation Guide",
+      "overview": "This appendix contains a worked example investigation for each Appendix C scenario. Use it if your team gets stuck during the Team Challenge, or after the challenge to compare your approach against one possible path. Each guide shows a sample prompt sequence, explains the reasoning behind each step, and walks through how the fault conditions can be surfaced and correlated into a complete RCA. These are not the only valid approaches — your team's own prompt strategy may be equally effective or better. Return to Appendix C: Scenarios for the original challenge briefs.",
+      "screenshots": [],
+      "blocks": [],
+      "steps": [
+        {
+          "id": "b1d4f782",
+          "order": 1,
+          "title": "Investigation Guide — Scenario 1: Buenos Aires",
+          "instruction": "<!--markdown-->\n**Investigation Guide — Scenario 1: Buenos Aires**\n\n*Return to the challenge brief: [Appendix C — Scenario 1: Buenos Aires](../appendix-c-scenarios/)*\n\n---\n\n!!! warning \"Note\"\n    This guide shows one effective path through the investigation. It is not the only valid approach — your team may have found the same faults through a different sequence. Use this to compare strategies, not to check a single right answer.\n\n---\n\n**Overview**\n\nThe Buenos Aires scenario involves six fault conditions that cascade from a single weekend change window. The key insight is that the STP instability (faults 2–4) and the ACL change (fault 1) are independent failures introduced at the same time, which makes the situation appear more complex than any single fault would. DNS (fault 5) and packet fragmentation (fault 6) are background issues that compound the user experience. A strong investigation surfaces all six and explains the relationships between them.\n\n---\n\n**Sample Prompt Sequence**\n\nStart broad to establish the site's overall health posture, then narrow systematically toward each fault domain.\n\n**Prompt 1 — Establish baseline**\n```\nAre there any issues currently affecting the Buenos Aires site?\n```\n*What to look for:* A summary of active alerts and issues. This should surface multiple problems simultaneously and give you the shape of what you are dealing with before going deep on any one thing.\n\n**Prompt 2 — Check network reachability and WAN health**\n```\nGive me a summary of my SD-WAN network and application health.\n```\n*What to look for:* SD-WAN site availability, application SLA violations, and WAN link statistics. Packet fragmentation on the WAN handoff may appear here as elevated error rates or MTU-related anomalies.\n\n**Prompt 3 — Surface switching and STP events**\n```\nAre there any critical alerts affecting the Buenos Aires network?\n```\n*What to look for:* STP topology change notifications, Root Guard events, and port state transitions. The unmanaged switch triggering TCNs and the Root Guard activation should appear in Meraki alert history.\n\n**Prompt 4 — Validate end-to-end reachability with ThousandEyes**\n```\nAre there any anomalies in my ThousandEyes tests for the Buenos Aires site?\n```\n*What to look for:* Packet loss, latency spikes, and path changes from the Buenos Aires enterprise agent. ThousandEyes will show where in the path traffic is being dropped — helping you separate the STP discard issue (local, access layer) from the WAN fragmentation issue (egress path).\n\n**Prompt 5 — Investigate the access policy fault**\n```\nShow me the Meraki appliance uplink status for the Buenos Aires network.\n```\n*What to look for:* Uplink state and any firewall or ACL policy events logged around the change window. The ACL blocking traffic on the distribution device should be visible as a policy change event or as dropped traffic in flow logs.\n\n**Prompt 6 — Surface the DNS fault**\n```\nAre there any outages affecting my monitored services right now?\n```\n*What to look for:* DNS test failures or resolution timeouts from the Buenos Aires vantage point. A ThousandEyes DNS server test will show the misconfigured resolver returning no results for internal hostnames.\n\n**Follow-up correlation prompt**\n```\nCorrelate the STP topology changes, Root Guard activation, and port discard events at Buenos Aires and explain the relationship between them.\n```\n*What to look for:* The AI should connect the unmanaged switch → superior BPDU → Root Guard trigger → port root-inconsistent state → STP discarding chain. This is the core causal thread of the scenario.\n\n---\n\n**The Six Fault Conditions**\n\n| # | Fault | How it surfaces |\n|---|---|---|\n| 1 | Port not forwarding — access policy | ACL policy event / dropped traffic in Meraki logs around the change window |\n| 2 | Root guard activated | Meraki alert: Root Guard triggered on distribution uplink port |\n| 3 | STP discarding packets | Port state shown as root-inconsistent / discarding in switching alerts |\n| 4 | STP topology changes | Repeated TCN events logged; spanning tree reconvergence activity |\n| 5 | Misconfigured DNS | ThousandEyes DNS test failures; internal hostname resolution timing out |\n| 6 | Packet fragments detected | WAN link error counters; MTU mismatch on MPLS handoff interface |\n\n---\n\n**RCA Summary — Key Points**\n\n- **Root cause thread:** The weekend change window introduced two independent faults simultaneously — an unmanaged switch that destabilised spanning tree, and an ACL misconfiguration that blocked user traffic. Neither was verified post-change.\n- **STP cascade:** Unmanaged switch → superior BPDU advertisement → Root Guard activated → port enters root-inconsistent/discarding state → user traffic on VLAN 10 blocked.\n- **DNS:** DHCP scope still points to a decommissioned server — all name resolution fails silently for hosts on the affected segment.\n- **Fragmentation:** MTU mismatch on the WAN handoff causes large packets to fragment on egress, degrading application performance independently of the other faults.\n- **Connecting thread:** All faults share a single contributing factor — the change window lacked any post-change verification process.\n\n---\n\n*Return to the challenge: [Appendix C — Scenario 1: Buenos Aires](../appendix-c-scenarios/)*",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [],
+          "code_blocks": [],
+          "verified": false
+        },
+        {
+          "id": "e7c9a043",
+          "order": 2,
+          "title": "Investigation Guide — Scenario 2: Mexico City",
+          "instruction": "<!--markdown-->\n**Investigation Guide — Scenario 2: Mexico City**\n\n*Return to the challenge brief: [Appendix C — Scenario 2: Mexico City](../appendix-c-scenarios/)*\n\n---\n\n!!! warning \"Note\"\n    This guide shows one effective path through the investigation. It is not the only valid approach — your team may have found the same faults through a different sequence. Use this to compare strategies, not to check a single right answer.\n\n---\n\n**Overview**\n\nThe Mexico City scenario is deceptively simple: three faults, one maintenance window, one shared contributing factor. The challenge is that the symptom pattern — public internet works, internal resources do not — naturally steers teams toward a firewall or WAN hypothesis. A strong investigation pivots quickly away from that false lead by establishing device reachability first, then working inward through the access layer before arriving at DNS as the explanation for the partial-vs-full connectivity split.\n\nThe C9300-X-Leaf-1 switch explored in Section 1 of the lab is the unreachable device at the centre of this scenario.\n\n---\n\n**Sample Prompt Sequence**\n\n**Prompt 1 — Inventory and reachability baseline**\n```\nShow me my Mexico City devices.\n```\n*What to look for:* The full device list for the site. The C9300-X-Leaf-1 should appear but will show as unreachable or have stale telemetry timestamps. This is your first fault signal and your entry point into the investigation.\n\n**Prompt 2 — Establish what is and is not working**\n```\nAre there any outages affecting my monitored services right now?\n```\n*What to look for:* ThousandEyes test results from the Mexico City enterprise agent. External tests (public DNS, internet HTTP) will show healthy. Internal service tests will show failures. This pattern is the key diagnostic signal that points away from WAN/firewall and toward a local DNS issue.\n\n**Prompt 3 — Triage active alerts**\n```\nAre there any critical alerts affecting the Mexico City network?\n```\n*What to look for:* Alert timestamps relative to the maintenance window. Access port state alerts (err-disabled ports, policy violations) and device offline events will appear here. Cross-referencing timestamps confirms these faults appeared after the firmware upgrade completed.\n\n**Prompt 4 — Check uplink health to eliminate WAN hypothesis**\n```\nMeraki appliance uplink status for the Mexico City network.\n```\n*What to look for:* Uplink state. If uplinks are active and healthy, this definitively steers the investigation away from WAN and firewall as root causes and toward the local access layer and DHCP/DNS configuration.\n\n**Prompt 5 — Surface the DNS fault**\n```\nAre there any anomalies in my ThousandEyes tests?\n```\n*What to look for:* DNS resolution failures specifically for internal hostnames. The ThousandEyes DNS server test from the Mexico City agent will show the DHCP-assigned resolver failing to answer queries for internal domains while public DNS resolves normally. This explains the partial connectivity pattern completely.\n\n**Follow-up correlation prompt**\n```\nThe Mexico City C9300-X-Leaf-1 went unreachable after an overnight firmware upgrade. Can you describe its last known state and help me determine whether this is a device failure or a post-upgrade configuration issue?\n```\n*What to look for:* Last-seen timestamps, configuration state before and after the upgrade, and whether the device is physically reachable but management-unreachable (configuration loss) versus fully offline (hardware/power failure). The distinction matters for how the remediation is prioritised.\n\n---\n\n**The Three Fault Conditions**\n\n| # | Fault | How it surfaces |\n|---|---|---|\n| 1 | Unreachable device | C9300-X-Leaf-1 absent from telemetry / offline in Cloud Control inventory since the maintenance window |\n| 2 | Port not forwarding — access policy | Access port alert events post-upgrade; ports in policy-blocked or err-disabled state preventing user traffic |\n| 3 | Misconfigured DNS | ThousandEyes DNS test: internal hostnames fail, public DNS resolves — DHCP scope points to wrong resolver |\n\n---\n\n**RCA Summary — Key Points**\n\n- **The partial connectivity pattern is the key:** public internet works, internal resources do not. This pattern has exactly one explanation — DNS. The DHCP scope is pointing clients at a resolver that cannot answer internal queries.\n- **The unreachable device:** The C9300-X-Leaf-1 went silent post-upgrade. The investigation should determine whether the device lost its management configuration (likely) versus a hardware failure (less likely given the timing). The distinction drives the remediation path.\n- **The access policy fault:** A policy applied during or after the upgrade caused access ports to stop forwarding frames for affected users, compounding the outage beyond what DNS alone would explain.\n- **Connecting thread:** All three faults share one contributing factor — the maintenance window closed without any post-upgrade verification. A verification checklist would have caught all three before business hours.\n\n---\n\n*Return to the challenge: [Appendix C — Scenario 2: Mexico City](../appendix-c-scenarios/)*",
+          "expected_result": "",
+          "notes": "",
+          "screenshots": [],
+          "blocks": [],
+          "code_blocks": [],
+          "verified": false
+        }
+      ]
     }
   ],
-  "conclusion": "You have now set up integrations, created and tested an agent, and promoted it to production. Use the Observability tab and Notifications pane to monitor ongoing agent runs. Refer to Appendix A for vendor-specific credential setup and Appendix B for the full list of available tools per integration. For issues not covered in the Troubleshooting section, contact your Cisco representative.",
+  "conclusion": "In this lab, you explored Cisco's Agentic Ops through hands-on experience with Cloud Control. You navigated the platform's core capabilities, including the Home Screen, the 9-Dot Menu, and Inventory management, gaining familiarity with how the environment is organized and accessed. You also experimented with AI Assistant sample prompts and the Agentic Canvas, discovering how natural language interactions can simplify complex operational tasks. Finally, you worked with Agent Builder instruction prompts to understand how agents can be configured and tailored to specific use cases.\n\nAs a next step, consider building and deploying your own custom agent using the Agent Builder, leveraging the prompt techniques practiced in this lab. Explore integrating additional tools and vendor-specific connections to expand your agent's capabilities across your environment. Use the Observability tab and Notifications pane to monitor agent runs and refine agent behavior based on real-world results. The more you experiment with different prompts and workflows, the better positioned you will be to unlock the full potential of Cisco's Agentic Ops Framework in your organization.",
   "topology_image": null,
   "recording_path": null,
   "created_at": "2026-07-18T20:28:58.991971",
-  "updated_at": "2026-07-20T02:26:10.247853",
+  "updated_at": "2026-08-23T15:00:30.634429",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-07-20T02:26:11.671742"
+  "last_published": "2026-08-23T15:00:37.650615"
 }

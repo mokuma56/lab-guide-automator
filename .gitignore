@@ -10,14 +10,16 @@ build/
 .DS_Store
 
 # Lab Guide Automator — runtime data (not shared)
-data/exports/
-data/sessions/
-data/uploads/
-data/guides/
-data/screenshots/
+# Leading ** so these match at any depth, not just the repo root
+# (DATA_DIR can point at lab_guide_automator/data/ as well as ./data/)
+**/data/exports/
+**/data/sessions/
+**/data/uploads/
+**/data/guides/
+**/data/screenshots/
 
 # Certs and secrets
-certs/
+**/certs/
 
 # Lock file from temp Word doc
 ~$*.docx

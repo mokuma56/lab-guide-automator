@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "lab-guide": {
+      "command": "uv",
+      "args": ["run", "lab-guide-mcp"],
+      "cwd": "/Users/maokuma/sw_projects/lab_guide_automator"
+    }
+  }
+}
