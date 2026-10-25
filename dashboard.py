@@ -71,13 +71,11 @@ def _save_guide(guide: LabGuide) -> None:
 
 
 def _renumber_steps(guide: LabGuide) -> None:
-    """Assign globally sequential step.order values across all sections, and section order."""
-    n = 1
+    """Assign section order, and step.order values that restart at 1 in each section."""
     for i, sec in enumerate(guide.sections):
         sec.order = i + 1
-        for step in sec.steps:
-            step.order = n
-            n += 1
+        for j, step in enumerate(sec.steps):
+            step.order = j + 1
 
 
 def _sse_event(data: dict) -> str:
@@ -4178,7 +4176,7 @@ function renderSections() {
 
 
       <div class="steps-container" style="margin-top:.5rem">
-        ${sec.steps.map((step, i) => renderStep(step, i + 1)).join('')}
+        ${sec.steps.map((step, i) => renderStep(step, /appendix/i.test(sec.title) ? false : i + 1)).join('')}
         <button class="btn btn-secondary btn-sm" style="margin-top:.4rem;border-style:dashed" onclick="addStepToSection('${sec.id}')">+ Add Step</button>
       </div>
     </div>
@@ -4542,7 +4540,7 @@ function renderStep(step, globalNum) {
          ondrop="stepDrop(event,'${step.id}')">
       <div class="step-header">
         <span class="step-drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">⠿</span>
-        <div class="step-num">${globalNum != null ? globalNum : step.order}</div>
+        ${globalNum === false ? '' : `<div class="step-num">${globalNum != null ? globalNum : step.order}</div>`}
         <div class="step-title-text" id="step-title-text-${step.id}"
              ondblclick="editStepInline('${step.id}')"
              title="Double-click to edit">${step.title}</div>

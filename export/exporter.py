@@ -321,6 +321,13 @@ def _render_block_md(blk, include_screenshots: bool = True) -> list[str]:
     return lines
 
 
+def _step_heading(sec, step) -> str:
+    """Step heading text; appendix sections are reference material, so their steps are unnumbered."""
+    if "appendix" in sec.title.lower():
+        return step.title
+    return f"Step {step.order}: {step.title}"
+
+
 def render_markdown(guide: LabGuide, include_screenshots: bool = True) -> str:
     lines: list[str] = []
     m = guide.metadata
@@ -367,7 +374,7 @@ def render_markdown(guide: LabGuide, include_screenshots: bool = True) -> str:
                 lines += [f"![]({ss.path})", ""]
 
         for step in sec.steps:
-            lines += [f"### Step {step.order}: {step.title}", ""]
+            lines += [f"### {_step_heading(sec, step)}", ""]
             lines += [_html_to_md(step.instruction), ""]
             if step.code_blocks:
                 for cb in step.code_blocks:
@@ -527,7 +534,7 @@ def render_html(guide: LabGuide, embed_screenshots: bool = False) -> str:
 
         for step in sec.steps:
             parts.append(f'<div class="step">')
-            parts.append(f"<h3>Step {step.order}: {step.title}</h3>")
+            parts.append(f"<h3>{_step_heading(sec, step)}</h3>")
             if step.instruction and step.instruction.strip():
                 instr = step.instruction.strip()
                 # Already HTML from Quill — output raw; plain text → convert markdown
@@ -1043,7 +1050,7 @@ def export_docx(guide: LabGuide, output_path: Path) -> Path:
                 _add_screenshot(ss.path)
 
         for step in sec.steps:
-            doc.add_heading(f"Step {step.order}: {step.title}", 2)
+            doc.add_heading(_step_heading(sec, step), 2)
             if step.instruction and step.instruction.strip():
                 _add_html_content(step.instruction)
 
@@ -1518,9 +1525,7 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
                 lines += [f"![](../screenshots/{fname})", ""]
 
         for step in sec.steps:
-            # Skip "Step N:" prefix for appendix sections
-            is_appendix = "appendix" in sec.title.lower()
-            step_heading = step.title if is_appendix else f"Step {step.order}: {step.title}"
+            step_heading = _step_heading(sec, step)
             lines += [f"## {step_heading}", ""]
             _instr = step.instruction or ""
             if _instr.strip().startswith("<!--markdown-->"):
