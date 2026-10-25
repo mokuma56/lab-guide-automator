@@ -69,7 +69,6 @@ mcp = FastMCP("Lab Guide Automator")
 
 # In-memory state (sessions survive as long as the server is running)
 _active_sessions: dict[str, RecordingSession] = {}
-_loaded_guides: dict[str, LabGuide] = {}   # guide_id → LabGuide
 
 
 def _data_dir() -> Path:
@@ -89,18 +88,15 @@ def _guide_path(guide_id: str) -> Path:
 
 
 def _load_guide(guide_id: str) -> LabGuide:
-    if guide_id in _loaded_guides:
-        return _loaded_guides[guide_id]
+    # Always read from disk: the dashboard edits the same files, and a cached
+    # copy would silently overwrite those edits on the next save.
     path = _guide_path(guide_id)
     if not path.exists():
         raise ValueError(f"Guide {guide_id!r} not found at {path}")
-    guide = LabGuide.load(path)
-    _loaded_guides[guide_id] = guide
-    return guide
+    return LabGuide.load(path)
 
 
 def _save_guide(guide: LabGuide) -> None:
-    _loaded_guides[guide.id] = guide
     guide.save(_guide_path(guide.id))
 
 
