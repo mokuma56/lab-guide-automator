@@ -40,7 +40,6 @@ settings = Settings()
 _active_sessions: dict[str, RecordingSession] = {}
 _session_window: dict[str, int] = {}    # session_id → pinned CGWindowID (optional)
 _paused_sessions: set[str] = set()      # session_ids currently paused (screenshots blocked)
-_loaded_guides: dict[str, LabGuide] = {}
 _progress_queues: dict[str, queue.Queue] = {}   # job_id → SSE event queue
 
 
@@ -59,18 +58,15 @@ def _guide_path(guide_id: str) -> Path:
 
 
 def _load_guide(guide_id: str) -> LabGuide:
-    if guide_id in _loaded_guides:
-        return _loaded_guides[guide_id]
+    # Always read from disk: the MCP server edits the same files, and a cached
+    # copy would silently overwrite those edits on the next save.
     p = _guide_path(guide_id)
     if not p.exists():
         raise FileNotFoundError(f"Guide not found: {guide_id}")
-    g = LabGuide.load(p)
-    _loaded_guides[guide_id] = g
-    return g
+    return LabGuide.load(p)
 
 
 def _save_guide(guide: LabGuide) -> None:
-    _loaded_guides[guide.id] = guide
     guide.save(_guide_path(guide.id))
 
 
@@ -211,7 +207,6 @@ def api_delete_guide(guide_id):
     p = _guide_path(guide_id)
     if p.exists():
         p.unlink()
-    _loaded_guides.pop(guide_id, None)
     return jsonify({"ok": True})
 
 
