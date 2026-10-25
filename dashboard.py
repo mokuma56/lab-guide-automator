@@ -7372,7 +7372,7 @@ async function loadModels() {
     }).join('');
     _updateModelTip(data.current, tip);
   } catch(e) {
-    sel.innerHTML = '<option value="claude-sonnet-4.6">claude-sonnet-4.6</option>';
+    sel.innerHTML = '<option value="claude-sonnet-5">claude-sonnet-5</option>';
   }
 }
 

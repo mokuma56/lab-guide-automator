@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ai_provider: str = Field("copilot", alias="AI_PROVIDER")
 
     # Copilot model — can be overridden at runtime via the dashboard selector
-    copilot_model: str = Field("claude-sonnet-4.6", alias="COPILOT_MODEL")
+    copilot_model: str = Field("claude-sonnet-5", alias="COPILOT_MODEL")
 
     openai_api_key: str = Field("", alias="OPENAI_API_KEY")
     openai_model: str = Field("gpt-4o", alias="OPENAI_MODEL")

@@ -3,7 +3,7 @@ AI client — uses GitHub Copilot API via your existing `gh` CLI token.
 No separate API key required. Falls back to OPENAI_API_KEY / ANTHROPIC_API_KEY
 if the gh token is not available.
 
-Supported models (GitHub Copilot): claude-sonnet-4.6, gpt-4o-2024-11-20, etc.
+Supported models (GitHub Copilot): claude-sonnet-5, gpt-4o-2024-11-20, etc.
 """
 from __future__ import annotations
 import base64
@@ -41,8 +41,8 @@ _COPILOT_HEADERS = {
 }
 
 # Default model — same one powering this OpenCode session
-_COPILOT_CHAT_MODEL = "claude-sonnet-4.6"
-_COPILOT_VISION_MODEL = "claude-sonnet-4.6"  # supports vision
+_COPILOT_CHAT_MODEL = "claude-sonnet-5"
+_COPILOT_VISION_MODEL = "claude-sonnet-5"  # supports vision
 
 # Corporate CA bundle path (includes Cisco root CAs + standard CAs)
 _CERT_BUNDLE = Path(__file__).parent.parent / "certs" / "system_ca.pem"
