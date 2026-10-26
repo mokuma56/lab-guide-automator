@@ -1453,11 +1453,8 @@ def _render_index_md(guide: LabGuide) -> str:
         if m.version:
             bits.append(f"**Version:** {m.version}")
         lines += ["  |  ".join(bits), ""]
-    if guide.learning_objectives:
-        lines += ["## Learning Objectives", ""]
-        for obj in guide.learning_objectives:
-            lines += [f"- {obj.text}"]
-        lines += [""]
+    # Learning objectives are rendered on the Introduction page only: the home page template
+    # shows just the hero, so objectives here were hidden yet still produced a dead nav link.
     return "\n".join(lines)
 
 

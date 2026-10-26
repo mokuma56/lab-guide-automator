@@ -29,3 +29,16 @@ def test_markdown_export_numbers_per_section_and_skips_appendix():
     assert "### Step 1: A" in md and "### Step 2: B" in md
     assert "### Step 1: C" in md
     assert "### Sample Prompts" in md and "Step 1: Sample Prompts" not in md
+
+
+def test_objectives_render_on_introduction_not_home(tmp_path):
+    from export.exporter import export_mkdocs
+    from lab_guide_automator.models import LearningObjective
+    guide = LabGuide(
+        metadata=LabMetadata(title="Lab"),
+        introduction="Welcome",
+        learning_objectives=[LearningObjective(text="Build an agent")],
+    )
+    export_mkdocs(guide, tmp_path)
+    assert "Build an agent" not in (tmp_path / "docs" / "index.md").read_text()
+    assert "Build an agent" in (tmp_path / "docs" / "introduction" / "index.md").read_text()
