@@ -21,10 +21,10 @@
     "prerequisites": [
       "Cisco SSO credentials and access to your Cloud Control tenant",
       "Admin Console access within your tenant",
-      "API credentials for the third-party tools you want to connect (see Appendix A)"
+      "API credentials for the third-party tools you want to connect"
     ]
   },
-  "introduction": "## The Vision: Cisco Cloud Control\n\nEnterprise IT runs on specialized products, each built to solve a different operational challenge. Cisco has spent decades building deep capabilities across networking, security, compute, observability, and collaboration. That depth matters — but the hardest operational problems rarely stay within one product or IT domain. Issues spill across boundaries, context gets lost, and teams spend more time coordinating than resolving.\n\nCisco Cloud Control was built to change that. It connects the full Cisco estate and third-party systems into one unified operational environment, giving teams a single place to manage infrastructure, carry context across products, and move from issue to resolution — without giving up the specialized tools they already rely on.\n\nAs AI agents become a practical part of IT operations, teams will increasingly work alongside agents that investigate issues, recommend changes, and take action. This new operating model is **AgenticOps**. Cisco Cloud Control is the platform that makes it practical — providing the trusted access, live operational context, authorized tools, and safeguards that agents need to act with confidence.\n\nBuilt on this foundation, **AI Canvas** brings operators and AI agents together to investigate and resolve cross-domain issues in real time. **Agent Builder** lets organizations build their own custom agents, encode their expertise, and connect the tools they already use — such as ServiceNow, Meraki, and more.\n\nCisco Cloud Control delivers three foundational capabilities:\n\n- **Manage** — One control plane to manage the Cisco estate and connected third-party systems.\n- **Resolve** — Find and fix issues across products and IT domains with shared operational context.\n- **Extend** — Build custom apps and agents, connect existing tools, and add Cisco and ecosystem capabilities.\n\n---\n\n## What You Will Do in This Lab\n\nIn this hands-on lab you will experience Cisco Cloud Control end-to-end, moving from exploring the platform to building on it:\n\n1. **Explore the Lab and Cloud Control Capabilities** — Navigate Cisco Cloud Control and get familiar with the unified operational environment, the 9-Dot Menu, and the inventory that ties every platform together.\n\n2. **Experience the Agentic AI Canvas** — See how operators and AI agents collaborate in AI Canvas to investigate and resolve cross-domain issues across your infrastructure.\n\n3. **Identity** — Use Identity Intelligence to review your posture score and see how human identities, non-human identities, applications, and endpoints come together in one view.\n\n4. **Splunk Secure Networking App** — Explore Splunk Secure Networking Essentials and its five secure-networking pillars, from Zero Trust Access to Agentic Ops.\n\n5. **Studio** — Build and test an AI agent with Agent Builder and generate a working application with App Builder, all governed by AI Defense guardrails.\n\n6. **Cloud Control and Cisco IQ** — Follow a device from an inventory insight into Cisco IQ, plan for quantum readiness, and use AI Canvas to explain and remediate a hardening risk.\n\nWhen you finish, keep going with the appendices: **Appendix A** is an interactive library of tested AI Canvas prompts you can search, rate, and copy, and **Appendices B and C** offer optional practice scenarios for anyone who wants more hands-on time solving real problems with AI Canvas.\n",
+  "introduction": "## The Vision: Cisco Cloud Control\n\nEnterprise IT runs on specialized products, each built to solve a different operational challenge. Cisco has spent decades building deep capabilities across networking, security, compute, observability, and collaboration. That depth matters — but the hardest operational problems rarely stay within one product or IT domain. Issues spill across boundaries, context gets lost, and teams spend more time coordinating than resolving.\n\nCisco Cloud Control was built to change that. It connects the full Cisco estate and third-party systems into one unified operational environment, giving teams a single place to manage infrastructure, carry context across products, and move from issue to resolution — without giving up the specialized tools they already rely on.\n\nAs AI agents become a practical part of IT operations, teams will increasingly work alongside agents that investigate issues, recommend changes, and take action. This new operating model is **AgenticOps**. Cisco Cloud Control is the platform that makes it practical — providing the trusted access, live operational context, authorized tools, and safeguards that agents need to act with confidence.\n\nBuilt on this foundation, **AI Canvas** brings operators and AI agents together to investigate and resolve cross-domain issues in real time. **Agent Builder** lets organizations build their own custom agents, encode their expertise, and connect the tools they already use — such as ServiceNow, Meraki, and more.\n\nCisco Cloud Control delivers three foundational capabilities:\n\n- **Manage** — One control plane to manage the Cisco estate and connected third-party systems.\n- **Resolve** — Find and fix issues across products and IT domains with shared operational context.\n- **Extend** — Build custom apps and agents, connect existing tools, and add Cisco and ecosystem capabilities.\n\n---\n\n## What You Will Do in This Lab\n\nIn this hands-on lab you will experience Cisco Cloud Control end-to-end, moving from exploring the platform to building on it:\n\n1. **Explore the Lab and Cloud Control Capabilities** — Navigate Cisco Cloud Control and get familiar with the unified operational environment, the 9-Dot Menu, and the inventory that ties every platform together.\n\n2. **Experience the Agentic AI Canvas** — See how operators and AI agents collaborate in AI Canvas to investigate and resolve cross-domain issues across your infrastructure.\n\n3. **Identity** — Use Identity Intelligence to review your posture score and see how human identities, non-human identities, applications, and endpoints come together in one view.\n\n4. **Splunk Secure Networking App** — Explore Splunk Secure Networking Essentials and its five secure-networking pillars, from Zero Trust Access to Agentic Ops.\n\n5. **Studio** — Build and test an AI agent with Agent Builder and generate a working application with App Builder, all governed by AI Defense guardrails.\n\n6. **Cloud Control and Cisco IQ** — Follow a device from an inventory insight into Cisco IQ, plan for quantum readiness, and use AI Canvas to explain and remediate a hardening risk.\n\nWhen you finish, keep going: the **AI Canvas Prompt Library** is an interactive library of tested AI Canvas prompts you can search, rate, and copy, and **Appendices B and C** offer optional practice scenarios for anyone who wants more hands-on time solving real problems with AI Canvas.\n",
   "learning_objectives": [
     {
       "id": "f632440b",
@@ -198,7 +198,7 @@
             {
               "id": "dc7dc97a",
               "type": "text",
-              "content": "<p>Next,&nbsp;navigate&nbsp;to&nbsp;<strong><a href=\"../appendix-a-ai-canvas-prompt-library/\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;A:&nbsp;AI&nbsp;Canvas&nbsp;Prompt&nbsp;Library</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;and&nbsp;spend&nbsp;time&nbsp;running&nbsp;the&nbsp;validated&nbsp;prompts&nbsp;for&nbsp;this&nbsp;environment.&nbsp;Use&nbsp;the&nbsp;<strong>copy&nbsp;button</strong>&nbsp;on&nbsp;each&nbsp;prompt&nbsp;block&nbsp;to&nbsp;paste&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas&nbsp;—&nbsp;this&nbsp;ensures&nbsp;accuracy&nbsp;and&nbsp;eliminates&nbsp;the&nbsp;risk&nbsp;of&nbsp;transcription&nbsp;errors.&nbsp;As&nbsp;you&nbsp;work&nbsp;through&nbsp;each&nbsp;prompt,&nbsp;observe&nbsp;how&nbsp;the&nbsp;system&nbsp;interprets&nbsp;the&nbsp;input,&nbsp;what&nbsp;format&nbsp;the&nbsp;response&nbsp;takes,&nbsp;and&nbsp;how&nbsp;quickly&nbsp;results&nbsp;are&nbsp;returned.</p><p>The&nbsp;goal&nbsp;of&nbsp;this&nbsp;exercise&nbsp;is&nbsp;to&nbsp;thoroughly&nbsp;prepare&nbsp;yourself&nbsp;for&nbsp;live&nbsp;customer&nbsp;demonstrations&nbsp;by&nbsp;building&nbsp;familiarity&nbsp;and&nbsp;confidence&nbsp;with&nbsp;a&nbsp;core&nbsp;set&nbsp;of&nbsp;prompts&nbsp;that&nbsp;consistently&nbsp;produce&nbsp;clear,&nbsp;accurate,&nbsp;and&nbsp;compelling&nbsp;results.&nbsp;Consider&nbsp;the&nbsp;following&nbsp;as&nbsp;you&nbsp;explore:</p><ul><li><strong>Identify&nbsp;your&nbsp;strongest&nbsp;examples.</strong>&nbsp;Some&nbsp;prompts&nbsp;will&nbsp;generate&nbsp;output&nbsp;that&nbsp;is&nbsp;particularly&nbsp;well-suited&nbsp;for&nbsp;showcasing&nbsp;the&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;environment.&nbsp;Take&nbsp;note&nbsp;of&nbsp;these&nbsp;and&nbsp;prioritize&nbsp;them&nbsp;for&nbsp;use&nbsp;in&nbsp;demos.</li><li><strong>Understand&nbsp;the&nbsp;output.</strong>&nbsp;Be&nbsp;prepared&nbsp;to&nbsp;explain&nbsp;to&nbsp;a&nbsp;customer&nbsp;not&nbsp;just&nbsp;what&nbsp;the&nbsp;output&nbsp;shows,&nbsp;but&nbsp;why&nbsp;it&nbsp;is&nbsp;useful&nbsp;and&nbsp;how&nbsp;it&nbsp;maps&nbsp;to&nbsp;a&nbsp;real-world&nbsp;business&nbsp;scenario&nbsp;or&nbsp;use&nbsp;case.</li><li><strong>Anticipate&nbsp;follow-up&nbsp;questions.</strong>&nbsp;As&nbsp;you&nbsp;review&nbsp;each&nbsp;result,&nbsp;think&nbsp;about&nbsp;questions&nbsp;a&nbsp;customer&nbsp;might&nbsp;ask&nbsp;and&nbsp;ensure&nbsp;you&nbsp;can&nbsp;speak&nbsp;confidently&nbsp;to&nbsp;the&nbsp;underlying&nbsp;functionality.</li><li><strong>Practice&nbsp;your&nbsp;delivery.</strong>&nbsp;Running&nbsp;through&nbsp;these&nbsp;prompts&nbsp;multiple&nbsp;times&nbsp;will&nbsp;help&nbsp;you&nbsp;develop&nbsp;a&nbsp;smooth,&nbsp;natural&nbsp;delivery&nbsp;so&nbsp;that&nbsp;the&nbsp;demonstration&nbsp;feels&nbsp;polished&nbsp;and&nbsp;professional&nbsp;rather&nbsp;than&nbsp;scripted.</li></ul><p>Take&nbsp;as&nbsp;much&nbsp;time&nbsp;as&nbsp;needed&nbsp;during&nbsp;this&nbsp;section&nbsp;to&nbsp;become&nbsp;comfortable&nbsp;with&nbsp;the&nbsp;material.&nbsp;A&nbsp;well-rehearsed&nbsp;demonstration&nbsp;using&nbsp;familiar&nbsp;prompts&nbsp;is&nbsp;far&nbsp;more&nbsp;effective&nbsp;than&nbsp;presenting&nbsp;new&nbsp;or&nbsp;untested&nbsp;examples&nbsp;under&nbsp;the&nbsp;pressure&nbsp;of&nbsp;a&nbsp;live&nbsp;customer&nbsp;engagement.</p><p></p><p><strong>Example&nbsp;prompts&nbsp;you&nbsp;can&nbsp;use:</strong></p>",
+              "content": "<p>Next,&nbsp;navigate&nbsp;to&nbsp;<strong><a href=\"../ai-canvas-prompt-library/\" rel=\"noopener noreferrer\" target=\"_blank\">AI&nbsp;Canvas&nbsp;Prompt&nbsp;Library</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;and&nbsp;spend&nbsp;time&nbsp;running&nbsp;the&nbsp;validated&nbsp;prompts&nbsp;for&nbsp;this&nbsp;environment.&nbsp;Use&nbsp;the&nbsp;<strong>copy&nbsp;button</strong>&nbsp;on&nbsp;each&nbsp;prompt&nbsp;block&nbsp;to&nbsp;paste&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas&nbsp;—&nbsp;this&nbsp;ensures&nbsp;accuracy&nbsp;and&nbsp;eliminates&nbsp;the&nbsp;risk&nbsp;of&nbsp;transcription&nbsp;errors.&nbsp;As&nbsp;you&nbsp;work&nbsp;through&nbsp;each&nbsp;prompt,&nbsp;observe&nbsp;how&nbsp;the&nbsp;system&nbsp;interprets&nbsp;the&nbsp;input,&nbsp;what&nbsp;format&nbsp;the&nbsp;response&nbsp;takes,&nbsp;and&nbsp;how&nbsp;quickly&nbsp;results&nbsp;are&nbsp;returned.</p><p>The&nbsp;goal&nbsp;of&nbsp;this&nbsp;exercise&nbsp;is&nbsp;to&nbsp;thoroughly&nbsp;prepare&nbsp;yourself&nbsp;for&nbsp;live&nbsp;customer&nbsp;demonstrations&nbsp;by&nbsp;building&nbsp;familiarity&nbsp;and&nbsp;confidence&nbsp;with&nbsp;a&nbsp;core&nbsp;set&nbsp;of&nbsp;prompts&nbsp;that&nbsp;consistently&nbsp;produce&nbsp;clear,&nbsp;accurate,&nbsp;and&nbsp;compelling&nbsp;results.&nbsp;Consider&nbsp;the&nbsp;following&nbsp;as&nbsp;you&nbsp;explore:</p><ul><li><strong>Identify&nbsp;your&nbsp;strongest&nbsp;examples.</strong>&nbsp;Some&nbsp;prompts&nbsp;will&nbsp;generate&nbsp;output&nbsp;that&nbsp;is&nbsp;particularly&nbsp;well-suited&nbsp;for&nbsp;showcasing&nbsp;the&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;environment.&nbsp;Take&nbsp;note&nbsp;of&nbsp;these&nbsp;and&nbsp;prioritize&nbsp;them&nbsp;for&nbsp;use&nbsp;in&nbsp;demos.</li><li><strong>Understand&nbsp;the&nbsp;output.</strong>&nbsp;Be&nbsp;prepared&nbsp;to&nbsp;explain&nbsp;to&nbsp;a&nbsp;customer&nbsp;not&nbsp;just&nbsp;what&nbsp;the&nbsp;output&nbsp;shows,&nbsp;but&nbsp;why&nbsp;it&nbsp;is&nbsp;useful&nbsp;and&nbsp;how&nbsp;it&nbsp;maps&nbsp;to&nbsp;a&nbsp;real-world&nbsp;business&nbsp;scenario&nbsp;or&nbsp;use&nbsp;case.</li><li><strong>Anticipate&nbsp;follow-up&nbsp;questions.</strong>&nbsp;As&nbsp;you&nbsp;review&nbsp;each&nbsp;result,&nbsp;think&nbsp;about&nbsp;questions&nbsp;a&nbsp;customer&nbsp;might&nbsp;ask&nbsp;and&nbsp;ensure&nbsp;you&nbsp;can&nbsp;speak&nbsp;confidently&nbsp;to&nbsp;the&nbsp;underlying&nbsp;functionality.</li><li><strong>Practice&nbsp;your&nbsp;delivery.</strong>&nbsp;Running&nbsp;through&nbsp;these&nbsp;prompts&nbsp;multiple&nbsp;times&nbsp;will&nbsp;help&nbsp;you&nbsp;develop&nbsp;a&nbsp;smooth,&nbsp;natural&nbsp;delivery&nbsp;so&nbsp;that&nbsp;the&nbsp;demonstration&nbsp;feels&nbsp;polished&nbsp;and&nbsp;professional&nbsp;rather&nbsp;than&nbsp;scripted.</li></ul><p>Take&nbsp;as&nbsp;much&nbsp;time&nbsp;as&nbsp;needed&nbsp;during&nbsp;this&nbsp;section&nbsp;to&nbsp;become&nbsp;comfortable&nbsp;with&nbsp;the&nbsp;material.&nbsp;A&nbsp;well-rehearsed&nbsp;demonstration&nbsp;using&nbsp;familiar&nbsp;prompts&nbsp;is&nbsp;far&nbsp;more&nbsp;effective&nbsp;than&nbsp;presenting&nbsp;new&nbsp;or&nbsp;untested&nbsp;examples&nbsp;under&nbsp;the&nbsp;pressure&nbsp;of&nbsp;a&nbsp;live&nbsp;customer&nbsp;engagement.</p><p></p><p><strong>Example&nbsp;prompts&nbsp;you&nbsp;can&nbsp;use:</strong></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -214,7 +214,7 @@
             {
               "id": "bee3921f",
               "type": "callout",
-              "content": "<p>You&nbsp;can&nbsp;access&nbsp;<strong><a href=\"../appendix-a-ai-canvas-prompt-library/\" rel=\"noopener noreferrer\" target=\"_blank\">Appendix&nbsp;A:&nbsp;AI&nbsp;Canvas&nbsp;Prompt&nbsp;Library</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;at&nbsp;any&nbsp;time&nbsp;from&nbsp;the&nbsp;navigation&nbsp;menu&nbsp;on&nbsp;the&nbsp;left.&nbsp;Each&nbsp;prompt&nbsp;has&nbsp;a&nbsp;copy&nbsp;button&nbsp;—&nbsp;click&nbsp;it&nbsp;to&nbsp;copy&nbsp;the&nbsp;prompt&nbsp;instantly&nbsp;to&nbsp;your&nbsp;clipboard,&nbsp;then&nbsp;paste&nbsp;it&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas.</p>",
+              "content": "<p>You&nbsp;can&nbsp;access&nbsp;<strong><a href=\"../ai-canvas-prompt-library/\" rel=\"noopener noreferrer\" target=\"_blank\">AI&nbsp;Canvas&nbsp;Prompt&nbsp;Library</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;at&nbsp;any&nbsp;time&nbsp;from&nbsp;the&nbsp;navigation&nbsp;menu&nbsp;on&nbsp;the&nbsp;left.&nbsp;Each&nbsp;prompt&nbsp;has&nbsp;a&nbsp;copy&nbsp;button&nbsp;—&nbsp;click&nbsp;it&nbsp;to&nbsp;copy&nbsp;the&nbsp;prompt&nbsp;instantly&nbsp;to&nbsp;your&nbsp;clipboard,&nbsp;then&nbsp;paste&nbsp;it&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas.</p>",
               "callout_type": "tip",
               "path": "",
               "caption": ""
@@ -978,8 +978,26 @@
       ]
     },
     {
-      "id": "2a5365cf",
+      "id": "73819f7f",
       "order": 3,
+      "title": "Value Realization",
+      "overview": "",
+      "screenshots": [],
+      "blocks": [
+        {
+          "id": "a13937f8",
+          "type": "text",
+          "content": "<!--markdown-->\n## Turning Capability into Outcomes\n\nSections 1 and 2 showed you what Cisco Cloud Control is and how AI Canvas works. The next four sections focus on **value realization**: seeing how the platform turns what you already own into measurable results.\n\nCisco customers have invested in identity, security, networking, and observability tools, but much of that value stays locked inside separate consoles. Cloud Control brings those signals together, so teams find risk sooner, resolve issues faster, and act on the same context instead of switching between products. It also lets organizations extend the platform with their own agents and apps, so each new use case builds on the investment they have already made.\n\nAs you work through the next sections, look for the value story in each one:\n\n- **Identity** — one view of human and non-human identities and their posture, so risky accounts surface before they become incidents.\n- **Splunk Secure Networking App** — security and network telemetry correlated into dashboards that show where the network is healthy and where it is exposed.\n- **Studio** — agents and apps built in natural language, extending Cloud Control to fit how each team works, with AI Defense guardrails built in.\n- **Cloud Control and Cisco IQ** — lifecycle, compliance, and security intelligence that turns findings into a prioritized, actionable fix.\n\nEach of these is a conversation you can have with a customer about the return they get from Cisco Cloud Control.\n",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        }
+      ],
+      "steps": []
+    },
+    {
+      "id": "2a5365cf",
+      "order": 4,
       "title": "Section 3: Identity",
       "overview": "In this section, you will explore Identity Intelligence in Cisco Cloud Control. You will review the identities in the environment — users, endpoints, agents, and non-human identities — and see how trust levels, identity checks, and MFA posture surface risky accounts before they become incidents.",
       "screenshots": [],
@@ -1439,7 +1457,7 @@
     },
     {
       "id": "9aa51f40",
-      "order": 4,
+      "order": 5,
       "title": "Section 4: Splunk Secure Networking App",
       "overview": "In this section, you will explore Splunk Secure Networking Essentials (SSNE), the Splunk app built into Cisco Cloud Control. SSNE correlates telemetry from Cisco ISE, Duo, Secure Access, Secure Firewall, Meraki, Catalyst Center, Catalyst SD-WAN, Nexus Dashboard, ACI, ThousandEyes, XDR, and AI Defense into executive workspaces and investigation dashboards organized around five secure-networking pillars: Zero Trust Access, Secure Infrastructure, Scalable Network Segmentation, Hybrid Mesh Firewalling, and Agentic Ops.",
       "screenshots": [],
@@ -1473,7 +1491,7 @@
             {
               "id": "efdadae8",
               "type": "text",
-              "content": "<p>The Insights Workspace is the executive starting point for the whole app:</p><ul><li><strong>Headline tiles</strong> — one health signal per pillar, each with a status badge (<em>Healthy</em>, <em>Warning</em>, <em>Critical</em>): ZTA auth failure rate, DC critical anomalies, active SGT assignments, Hybrid Mesh Firewall blocked flows, degraded digital paths, and Palo Alto policy blocks.</li><li><strong>Pillar rows</strong> — collapsible Zero Trust Access, Secure Infrastructure, and other rows of trend tiles. Page through them with the arrows, or change how many tiles show per page.</li><li><strong>Secure Network Command Map</strong> — live sites, trust paths, and policy-enforcement health on a geographic map (switch to <em>Table</em> for a list), with inter-site and site-link availability below it.</li><li><strong>Controls</strong> — layout toggles, time range (default <em>Last 24 hours</em>), and refresh rate.</li></ul><p>The left navigation groups every dashboard by pillar. Hover a pillar to open its dashboards.</p>",
+              "content": "<p>The Insights Workspace is the executive starting point for the whole app:</p><ul><li><strong>Headline tiles</strong> — one health signal per pillar, each with a status badge (<em>Healthy</em>, <em>Warning</em>, <em>Critical</em>): ZTA auth failure rate, DC critical anomalies, active SGT assignments, Hybrid Mesh Firewall blocked flows, degraded digital paths, and Palo Alto policy blocks.</li><li><strong>Pillar rows</strong> — collapsible Zero Trust Access, Secure Infrastructure, and other rows of trend tiles. Page through them with the arrows, or change how many tiles show per page.</li><li><strong>Secure Network Command Map</strong> — live sites, trust paths, and policy-enforcement health on a geographic map (switch to <em>Table</em> for a list), with inter-site and site-link availability below it.</li><li><strong>Controls</strong> — layout toggles, time range (default <em>Last 24 hours</em>), and refresh rate.</li></ul><p>The left navigation groups every dashboard by pillar. Click a pillar to open a menu of its dashboards.</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1502,7 +1520,7 @@
             {
               "id": "a8ae4677",
               "type": "text",
-              "content": "<p>In the left navigation, hover <strong>Zero Trust Access</strong> and open each dashboard in turn. This pillar answers: <em>are the right users and devices getting access, and are policies being enforced?</em></p>",
+              "content": "<p>In the left navigation, click <strong>Zero Trust Access</strong>. A menu slides out listing this pillar's dashboards; open each one in turn by clicking it in the menu. This pillar answers: <em>are the right users and devices getting access, and are policies being enforced?</em></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1514,6 +1532,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "bf4b37a8",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> in the left navigation, then click <strong>Zero Trust Posture</strong> in the menu.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "9ff61512",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-zero-trust-posture.png",
+              "caption": "Zero Trust Access menu — Zero Trust Posture"
             },
             {
               "id": "063a1b1f",
@@ -1540,6 +1574,22 @@
               "caption": ""
             },
             {
+              "id": "28eb6333",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> again to reopen the menu, then click <strong>Authentication and Policy Enforcement</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "504ed7bb",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-authentication-and-policy-enforcement.png",
+              "caption": "Zero Trust Access menu — Authentication and Policy Enforcement"
+            },
+            {
               "id": "2d8420d6",
               "type": "screenshot",
               "content": "",
@@ -1562,6 +1612,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "900886d0",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> again to reopen the menu, then click <strong>Policy Management</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "fd81a5ea",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-policy-management.png",
+              "caption": "Zero Trust Access menu — Policy Management"
             },
             {
               "id": "27ecd9ad",
@@ -1588,6 +1654,22 @@
               "caption": ""
             },
             {
+              "id": "e0a412f9",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> again to reopen the menu, then click <strong>User Activity Monitoring</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "4b2cd65e",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-user-activity-monitoring.png",
+              "caption": "Zero Trust Access menu — User Activity Monitoring"
+            },
+            {
               "id": "b8bee18d",
               "type": "screenshot",
               "content": "",
@@ -1612,6 +1694,22 @@
               "caption": ""
             },
             {
+              "id": "319632e2",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> again to reopen the menu, then click <strong>Detection & Response</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "baf9791d",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-detection-response.png",
+              "caption": "Zero Trust Access menu — Detection & Response"
+            },
+            {
               "id": "55b54394",
               "type": "screenshot",
               "content": "",
@@ -1634,6 +1732,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "209d4fd1",
+              "type": "text",
+              "content": "<p>Click <strong>Zero Trust Access</strong> again to reopen the menu, then click <strong>Remote Access VPN (RaVPN) Sessions and Posture</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "bf5e7bf6",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-remote-access-vpn-ravpn-sessions-and-posture.png",
+              "caption": "Zero Trust Access menu — Remote Access VPN (RaVPN) Sessions and Posture"
             },
             {
               "id": "964a2ae6",
@@ -1675,7 +1789,7 @@
             {
               "id": "c18d48fd",
               "type": "text",
-              "content": "<p>Hover <strong>Secure Infrastructure</strong>. This pillar answers: <em>is the network and data center healthy, and where is it exposed?</em></p>",
+              "content": "<p>In the left navigation, click <strong>Secure Infrastructure</strong>. A menu slides out listing this pillar's dashboards; open each one in turn by clicking it in the menu. This pillar answers: <em>is the network and data center healthy, and where is it exposed?</em></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1687,6 +1801,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "0f6cc68f",
+              "type": "text",
+              "content": "<p>Click <strong>Secure Infrastructure</strong> in the left navigation, then click <strong>Secure Infrastructure Status</strong> in the menu.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "607adf77",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-secure-infrastructure-status.png",
+              "caption": "Secure Infrastructure menu — Secure Infrastructure Status"
             },
             {
               "id": "63a2016b",
@@ -1713,6 +1843,22 @@
               "caption": ""
             },
             {
+              "id": "d49a214a",
+              "type": "text",
+              "content": "<p>Click <strong>Secure Infrastructure</strong> again to reopen the menu, then click <strong>Infrastructure Posture</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "99cc4336",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-infrastructure-posture.png",
+              "caption": "Secure Infrastructure menu — Infrastructure Posture"
+            },
+            {
               "id": "6605a6b4",
               "type": "screenshot",
               "content": "",
@@ -1737,6 +1883,22 @@
               "caption": ""
             },
             {
+              "id": "7ce4a66b",
+              "type": "text",
+              "content": "<p>Click <strong>Secure Infrastructure</strong> again to reopen the menu, then click <strong>Secure Data Center Operations</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "fb92f599",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-secure-data-center-operations.png",
+              "caption": "Secure Infrastructure menu — Secure Data Center Operations"
+            },
+            {
               "id": "7cc77878",
               "type": "screenshot",
               "content": "",
@@ -1759,6 +1921,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "2c0f1f21",
+              "type": "text",
+              "content": "<p>Click <strong>Secure Infrastructure</strong> again to reopen the menu, then click <strong>SD-WAN and Network Health Monitoring</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "cc5005c0",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-sd-wan-and-network-health-monitoring.png",
+              "caption": "Secure Infrastructure menu — SD-WAN and Network Health Monitoring"
             },
             {
               "id": "1b7724e3",
@@ -1800,7 +1978,7 @@
             {
               "id": "9fe2aca0",
               "type": "text",
-              "content": "<p>Hover <strong>Scalable Network Segmentation</strong>. This pillar answers: <em>how far has TrustSec/SGT segmentation been adopted, and is it being enforced?</em></p>",
+              "content": "<p>In the left navigation, click <strong>Scalable Network Segmentation</strong>. A menu slides out listing this pillar's dashboards; open each one in turn by clicking it in the menu. This pillar answers: <em>how far has TrustSec/SGT segmentation been adopted, and is it being enforced?</em></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1812,6 +1990,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "4edf41b6",
+              "type": "text",
+              "content": "<p>Click <strong>Scalable Network Segmentation</strong> in the left navigation, then click <strong>Segmentation Readiness</strong> in the menu.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "5e50d022",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-segmentation-readiness.png",
+              "caption": "Scalable Network Segmentation menu — Segmentation Readiness"
             },
             {
               "id": "dee621da",
@@ -1836,6 +2030,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "654fd272",
+              "type": "text",
+              "content": "<p>Click <strong>Scalable Network Segmentation</strong> again to reopen the menu, then click <strong>Segmentation Operations</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "bb3cd931",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-segmentation-operations.png",
+              "caption": "Scalable Network Segmentation menu — Segmentation Operations"
             },
             {
               "id": "74de193c",
@@ -1877,7 +2087,7 @@
             {
               "id": "f2f766ea",
               "type": "text",
-              "content": "<p>Hover <strong>Hybrid Mesh Firewalling</strong>. This pillar answers: <em>is policy enforced consistently across every firewall — on-prem, branch, cloud, and workload?</em></p>",
+              "content": "<p>In the left navigation, click <strong>Hybrid Mesh Firewalling</strong>. A menu slides out listing this pillar's dashboards; open each one in turn by clicking it in the menu. This pillar answers: <em>is policy enforced consistently across every firewall — on-prem, branch, cloud, and workload?</em></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1889,6 +2099,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "46e71bb9",
+              "type": "text",
+              "content": "<p>Click <strong>Hybrid Mesh Firewalling</strong> in the left navigation, then click <strong>Hybrid Mesh Enforcement</strong> in the menu.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "25995170",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-hybrid-mesh-enforcement.png",
+              "caption": "Hybrid Mesh Firewalling menu — Hybrid Mesh Enforcement"
             },
             {
               "id": "17fb7c98",
@@ -1915,6 +2141,22 @@
               "caption": ""
             },
             {
+              "id": "351e91b4",
+              "type": "text",
+              "content": "<p>Click <strong>Hybrid Mesh Firewalling</strong> again to reopen the menu, then click <strong>Threat Detection and Enforcement</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "97f42c4a",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-threat-detection-and-enforcement.png",
+              "caption": "Hybrid Mesh Firewalling menu — Threat Detection and Enforcement"
+            },
+            {
               "id": "024f5b23",
               "type": "screenshot",
               "content": "",
@@ -1937,6 +2179,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "b0bd0543",
+              "type": "text",
+              "content": "<p>Click <strong>Hybrid Mesh Firewalling</strong> again to reopen the menu, then click <strong>DLP and Cloud Native Security</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "bad4ba74",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-dlp-and-cloud-native-security.png",
+              "caption": "Hybrid Mesh Firewalling menu — DLP and Cloud Native Security"
             },
             {
               "id": "10729d3c",
@@ -1970,7 +2228,7 @@
             {
               "id": "a1fe7572",
               "type": "text",
-              "content": "<p>Hover <strong>Agentic Ops</strong>. This pillar answers: <em>are users getting a good digital experience, and what should operators and executives act on first?</em></p>",
+              "content": "<p>In the left navigation, click <strong>Agentic Ops</strong>. A menu slides out listing this pillar's dashboards; open each one in turn by clicking it in the menu. This pillar answers: <em>are users getting a good digital experience, and what should operators and executives act on first?</em></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1982,6 +2240,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "b16ef0d8",
+              "type": "text",
+              "content": "<p>Click <strong>Agentic Ops</strong> in the left navigation, then click <strong>Operational Intelligence</strong> in the menu.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "f5b599a4",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-operational-intelligence.png",
+              "caption": "Agentic Ops menu — Operational Intelligence"
             },
             {
               "id": "dc6d9c68",
@@ -2008,6 +2282,22 @@
               "caption": ""
             },
             {
+              "id": "731cda90",
+              "type": "text",
+              "content": "<p>Click <strong>Agentic Ops</strong> again to reopen the menu, then click <strong>Secure Networking Assurance</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "0085906b",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-secure-networking-assurance.png",
+              "caption": "Agentic Ops menu — Secure Networking Assurance"
+            },
+            {
               "id": "94bd7328",
               "type": "screenshot",
               "content": "",
@@ -2030,6 +2320,22 @@
               "callout_type": "",
               "path": "",
               "caption": ""
+            },
+            {
+              "id": "882fc40a",
+              "type": "text",
+              "content": "<p>Click <strong>Agentic Ops</strong> again to reopen the menu, then click <strong>Executive Assurance</strong>.</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "cfd53545",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "ssne-menu-executive-assurance.png",
+              "caption": "Agentic Ops menu — Executive Assurance"
             },
             {
               "id": "b7e8a601",
@@ -2092,7 +2398,7 @@
     },
     {
       "id": "64607944",
-      "order": 5,
+      "order": 6,
       "title": "Section 5: Studio",
       "overview": "Cisco Cloud Control Studio is the extensibility, governance, and customization engine of the Cisco Cloud Control platform. Part of Cisco's AgenticOps strategy, it gives IT and security operations teams a design space to build autonomous AI agents and applications that bridge Cisco infrastructure and third-party tools. In this section, you will use its two environments — App Builder and Agent Builder — and see how everything built in Studio is governed by AI Defense guardrails, traced through Splunk AI Agent Monitoring, and published for use across the platform.",
       "screenshots": [],
@@ -2585,7 +2891,7 @@
     },
     {
       "id": "fc3fcc7a",
-      "order": 6,
+      "order": 7,
       "title": "Section 6: Cloud Control and Cisco IQ",
       "overview": "In this section, you will see how Cisco IQ and Cisco Cloud Control work together. Cisco IQ continuously assesses your Cisco estate for security advisories, configuration and hardening gaps, certificate expiry, and quantum readiness. When IQ is connected, those findings enrich the Cloud Control inventory right where operators already work, and a single click takes you to the exact device in Cisco IQ. You will follow one device from an inventory insight, through its IQ assessments, to an AI Canvas conversation that explains how to fix what IQ found.",
       "screenshots": [],
@@ -3280,70 +3586,57 @@
     },
     {
       "id": "d50cc8a7",
-      "order": 7,
-      "title": "Appendix A: AI Canvas Prompt Library",
+      "order": 8,
+      "title": "AI Canvas Prompt Library",
       "overview": "",
       "screenshots": [],
-      "blocks": [],
-      "steps": [
+      "blocks": [
         {
-          "id": "c1d02b91",
-          "order": 1,
-          "title": "Find, Rate, and Share Prompts",
-          "instruction": "",
-          "expected_result": "",
-          "notes": "",
-          "screenshots": [],
-          "blocks": [
-            {
-              "id": "84aa1521",
-              "type": "callout",
-              "content": "<p>Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;constraints&nbsp;of&nbsp;this&nbsp;lab,&nbsp;Intersight&nbsp;and&nbsp;Nexus&nbsp;Dashboard&nbsp;products&nbsp;are&nbsp;not&nbsp;available&nbsp;for&nbsp;testing&nbsp;prompts.&nbsp;Please&nbsp;consider&nbsp;them&nbsp;references&nbsp;for&nbsp;the&nbsp;normal&nbsp;dCloud&nbsp;demo&nbsp;environment.</p>",
-              "callout_type": "caution",
-              "path": "",
-              "caption": ""
-            },
-            {
-              "id": "fcc59eba",
-              "type": "text",
-              "content": "<!--markdown-->\nThis appendix is an interactive library of **353 AI Canvas prompts**, each one tested repeatedly in the dCloud lab environment. Every prompt shows how it performed in testing, so you can pick the ones most likely to give a strong, consistent answer.\n\n**How to use it**\n\n- **Search** for a product, site, or problem (press `/` to jump to the search box).\n- **Filter** by product area, by consistency, or turn on **✨ Top picks** — prompts that scored 4.5 or higher with High consistency.\n- **Sort** by recommended, highest AI grade, most consistent, or fastest response.\n- Click the **copy** button on any prompt, then paste it into **AI Canvas** or the **AI Assistant**.\n- Prompts with a **follow-up** show the next question to ask in the same canvas.\n- Values highlighted in yellow, such as `<alert-id>`, must be replaced with a value from your environment before you run the prompt.\n- Click **☆** to save a prompt to **My favorites** in this browser.\n- Tried a prompt? Click **👍** or **👎** to tell other students whether it worked for you. Votes from everyone are combined, and **Sort: Students' favorites** puts the best-loved prompts first. Click your vote again to remove it.\n- Found a prompt that works well? Click **➕ Share a prompt**. Shared prompts are reviewed before they appear in the library with a **Community** badge.\n\n<iframe src=\"../apps/prompt-library.html\" title=\"AI Canvas Prompt Library\" style=\"width:100%;height:80vh;min-height:620px;border:1px solid var(--md-default-fg-color--lightest);border-radius:8px;\" allow=\"clipboard-write\" loading=\"eager\"></iframe>\n\n[Open the prompt library in a new tab](../apps/prompt-library.html){ target=_blank }\n",
-              "callout_type": "",
-              "path": "",
-              "caption": ""
-            },
-            {
-              "id": "9af7b058",
-              "type": "divider",
-              "content": "",
-              "callout_type": "",
-              "path": "",
-              "caption": ""
-            },
-            {
-              "id": "9306ca3f",
-              "type": "callout",
-              "content": "<p>AI&nbsp;grades&nbsp;and&nbsp;consistency&nbsp;ratings&nbsp;come&nbsp;from&nbsp;automated&nbsp;test&nbsp;runs&nbsp;in&nbsp;the&nbsp;dCloud&nbsp;lab.&nbsp;Actual&nbsp;responses&nbsp;will&nbsp;vary&nbsp;due&nbsp;to&nbsp;the&nbsp;nature&nbsp;of&nbsp;the&nbsp;Live&nbsp;Lab&nbsp;environment&nbsp;and&nbsp;Agentic&nbsp;Systems&nbsp;</p>",
-              "callout_type": "note",
-              "path": "",
-              "caption": ""
-            },
-            {
-              "id": "9f3b55a4",
-              "type": "divider",
-              "content": "",
-              "callout_type": "",
-              "path": "",
-              "caption": ""
-            }
-          ],
-          "code_blocks": [],
-          "verified": false
+          "id": "84aa1521",
+          "type": "callout",
+          "content": "<p>Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;constraints&nbsp;of&nbsp;this&nbsp;lab,&nbsp;Intersight&nbsp;and&nbsp;Nexus&nbsp;Dashboard&nbsp;products&nbsp;are&nbsp;not&nbsp;available&nbsp;for&nbsp;testing&nbsp;prompts.&nbsp;Please&nbsp;consider&nbsp;them&nbsp;references&nbsp;for&nbsp;the&nbsp;normal&nbsp;dCloud&nbsp;demo&nbsp;environment.</p>",
+          "callout_type": "caution",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "fcc59eba",
+          "type": "text",
+          "content": "<!--markdown-->\nThis appendix is an interactive library of **353 AI Canvas prompts**, each one tested repeatedly in the dCloud lab environment. Every prompt shows how it performed in testing, so you can pick the ones most likely to give a strong, consistent answer.\n\n**How to use it**\n\n- **Search** for a product, site, or problem (press `/` to jump to the search box).\n- **Filter** by product area, by consistency, or turn on **✨ Top picks** — prompts that scored 4.5 or higher with High consistency.\n- **Sort** by recommended, highest AI grade, most consistent, or fastest response.\n- Click the **copy** button on any prompt, then paste it into **AI Canvas** or the **AI Assistant**.\n- Prompts with a **follow-up** show the next question to ask in the same canvas.\n- Values highlighted in yellow, such as `<alert-id>`, must be replaced with a value from your environment before you run the prompt.\n- Click **☆** to save a prompt to **My favorites** in this browser.\n- Tried a prompt? Click **👍** or **👎** to tell other students whether it worked for you. Votes from everyone are combined, and **Sort: Students' favorites** puts the best-loved prompts first. Click your vote again to remove it.\n- Found a prompt that works well? Click **➕ Share a prompt**. Shared prompts are reviewed before they appear in the library with a **Community** badge.\n\n<iframe src=\"../apps/prompt-library.html\" title=\"AI Canvas Prompt Library\" style=\"width:100%;height:80vh;min-height:620px;border:1px solid var(--md-default-fg-color--lightest);border-radius:8px;\" allow=\"clipboard-write\" loading=\"eager\"></iframe>\n\n[Open the prompt library in a new tab](../apps/prompt-library.html){ target=_blank }\n",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9af7b058",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9306ca3f",
+          "type": "callout",
+          "content": "<p>AI&nbsp;grades&nbsp;and&nbsp;consistency&nbsp;ratings&nbsp;come&nbsp;from&nbsp;automated&nbsp;test&nbsp;runs&nbsp;in&nbsp;the&nbsp;dCloud&nbsp;lab.&nbsp;Actual&nbsp;responses&nbsp;will&nbsp;vary&nbsp;due&nbsp;to&nbsp;the&nbsp;nature&nbsp;of&nbsp;the&nbsp;Live&nbsp;Lab&nbsp;environment&nbsp;and&nbsp;Agentic&nbsp;Systems&nbsp;</p>",
+          "callout_type": "note",
+          "path": "",
+          "caption": ""
+        },
+        {
+          "id": "9f3b55a4",
+          "type": "divider",
+          "content": "",
+          "callout_type": "",
+          "path": "",
+          "caption": ""
         }
-      ]
+      ],
+      "steps": []
     },
     {
       "id": "d5ba9e45",
-      "order": 8,
+      "order": 9,
       "title": "Appendix B: Scenarios",
       "overview": "Want more hands-on time with AI Canvas? This appendix contains two optional practice scenarios. Each one drops you into a realistic operational situation at a branch site, and your goal is to use AI Canvas to investigate, find every active fault condition, and build a complete root cause analysis (RCA). There are no hints, prescribed steps, or suggested prompts — you decide how to approach the problem, which makes these a great way to sharpen your prompting skills. Work through them on your own or with a partner, at your own pace. When you're finished, or if you get stuck, Appendix C: Investigation Guide walks through one worked approach for each scenario.",
       "screenshots": [],
@@ -3377,7 +3670,7 @@
     },
     {
       "id": "f8a3c21e",
-      "order": 9,
+      "order": 10,
       "title": "Appendix C: Investigation Guide",
       "overview": "This appendix contains a worked example investigation for each Appendix B practice scenario. Use it if you get stuck, or after you finish to compare your approach with one possible path. Each guide shows a sample prompt sequence, explains the reasoning behind each step, and shows how the fault conditions can be surfaced and connected into a complete RCA. These are not the only valid approaches — your own prompting strategy may be just as effective, or better. Return to Appendix B: Scenarios for the original scenario briefs.",
       "screenshots": [],
@@ -3410,12 +3703,19 @@
       ]
     }
   ],
-  "conclusion": "In this lab, you explored Cisco's Agentic Ops through hands-on experience with Cloud Control. You navigated the platform's core capabilities, including the Home Screen, the 9-Dot Menu, and Inventory management, gaining familiarity with how the environment is organized and accessed. You also experimented with AI Assistant sample prompts and the Agentic Canvas, discovering how natural language interactions can simplify complex operational tasks. Finally, you worked with Agent Builder instruction prompts to understand how agents can be configured and tailored to specific use cases.\n\nAs a next step, consider building and deploying your own custom agent using the Agent Builder, leveraging the prompt techniques practiced in this lab. Explore integrating additional tools and vendor-specific connections to expand your agent's capabilities across your environment. Use the Observability tab and Notifications pane to monitor agent runs and refine agent behavior based on real-world results. The more you experiment with different prompts and workflows, the better positioned you will be to unlock the full potential of Cisco's Agentic Ops Framework in your organization.",
+  "conclusion": "In this lab, you experienced Cisco Cloud Control end-to-end — from exploring the platform to building on it. You navigated the unified operational environment, the 9-Dot Menu, and the inventory that ties every Cisco platform together, then worked alongside AI agents in AI Canvas to investigate cross-domain issues and reach a root cause.\n\nFrom there, you explored how Cloud Control delivers value across the estate:\n\n- **Identity** — you reviewed identity posture in Identity Intelligence and saw human identities, non-human identities, applications, and endpoints come together in one view.\n- **Splunk Secure Networking App** — you navigated the five secure-networking pillars and saw how correlated telemetry shows where the network is healthy and where it is exposed.\n- **Studio** — you built and tested an AI agent with Agent Builder and generated a working application with App Builder, all governed by AI Defense guardrails.\n- **Cloud Control and Cisco IQ** — you followed a device from an inventory insight into Cisco IQ, planned for quantum readiness, and used AI Canvas to turn a hardening finding into remediation guidance and a Cisco Workflows action.\n\n**Value realization:** together, these capabilities turn the Cisco investments customers already own into measurable outcomes — risks found sooner, issues resolved faster with shared context, and new agents and apps built on the same trusted platform.\n\nAs a next step, keep practicing. Use the **AI Canvas Prompt Library** to find, rate, and share prompts that work well, try the optional practice scenarios in **Appendices B and C**, and think about the value story you would tell a customer for each section of this lab. The more you work with AI Canvas, Studio, and Cisco IQ, the more confidently you will be able to show customers what Cisco Cloud Control can do for them.",
   "topology_image": null,
   "recording_path": null,
   "created_at": "2026-07-18T20:28:58.991971",
-  "updated_at": "2026-10-26T11:33:11.143800",
+  "updated_at": "2026-10-26T12:10:37.534293",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-10-26T11:35:05.446740"
+  "last_published": "2026-10-26T12:13:26.744075",
+  "nav_dividers_after": [
+    "home",
+    "5e133176",
+    "fc3fcc7a",
+    "d50cc8a7",
+    "f8a3c21e"
+  ]
 }
