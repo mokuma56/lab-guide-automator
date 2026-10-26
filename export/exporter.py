@@ -1125,6 +1125,7 @@ theme:
   favicon: template_assets/cisco_logo.png
 extra:
   generator: false
+  event: "{event}"
 extra_css:
   - stylesheets/extra.css
 extra_javascript:
@@ -1304,6 +1305,9 @@ _HOME_HTML = """\
     :root { .tx-hero__content { margin: 0; } }
     .tx-hero__content { padding-bottom: 1rem; margin: 0 auto; }
     .tx-hero__logo { scale: 1; width: 100%; padding-bottom: 50px; }
+    .tx-hero__event { padding-bottom: 50px; line-height: 1.05; }
+    .tx-hero__event-brand { display: block; font-size: 1.9rem; font-weight: 700; }
+    .tx-hero__event-name { display: block; font-size: 3rem; font-weight: 300; }
     .tx-hero__image { width: 850px; height: 1050px; order: 1; padding-right: 2.5rem; }
     .tx-hero .md-button { margin-top: .5rem; margin-right: .5rem; color: var(--md-primary-bg-color) }
     .tx-hero .md-button--primary { background-color: var(--md-primary-bg-color); color: rgb(0,0,0); border-color: var(--md-primary-bg-color) }
@@ -1324,19 +1328,27 @@ _HOME_HTML = """\
                 <img src="template_assets/CLAMER2025_Static_Midnight_Generic.png" draggable="false">
             </div>
             <div class="tx-hero__content">
+                {% if config.extra.event %}
+                <div class="tx-hero__event">
+                    <span class="tx-hero__event-brand">Cisco</span>
+                    <span class="tx-hero__event-name">{{ config.extra.event }}</span>
+                </div>
+                {% else %}
                 <div class="tx-hero__logo">
                     <img src="template_assets/TE_white_Logo_300dpi.png" draggable="false">
                 </div>
+                {% endif %}
                 <h1>
                     <script>
-                        var title = document.querySelector('meta[name="description"]').content
-                        const lab = title.split(" ")[0]
+                        var title = document.querySelector('meta[name="description"]').content.trim()
+                        // A leading session code (e.g. LTRXAR-3783) becomes the heading; plain titles have none
+                        const lab = /[0-9]/.test(title.split(" ")[0]) ? title.split(" ")[0] : ""
                         document.write(lab)
                     </script>
                 </h1>
                 <p>
                     <script>
-                        const descr = title.substring(title.indexOf(" ") + 1)
+                        const descr = lab ? title.substring(title.indexOf(" ") + 1) : title
                         document.write(descr)
                     </script>
                 </p>
@@ -1567,6 +1579,7 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
     # mkdocs.yml
     yml = _MKDOCS_YML_TEMPLATE.format(
         title=guide.metadata.title,
+        event=guide.metadata.subtitle.strip().replace('"', '\\"'),
         nav_sections=nav_intro + nav_sections + nav_conclusion,
     )
     (output_dir / "mkdocs.yml").write_text(yml)
