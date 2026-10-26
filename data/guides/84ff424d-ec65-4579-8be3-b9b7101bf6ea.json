@@ -3592,14 +3592,6 @@
       "screenshots": [],
       "blocks": [
         {
-          "id": "84aa1521",
-          "type": "callout",
-          "content": "<p>Due&nbsp;to&nbsp;the&nbsp;scale&nbsp;constraints&nbsp;of&nbsp;this&nbsp;lab,&nbsp;Intersight&nbsp;and&nbsp;Nexus&nbsp;Dashboard&nbsp;products&nbsp;are&nbsp;not&nbsp;available&nbsp;for&nbsp;testing&nbsp;prompts.&nbsp;Please&nbsp;consider&nbsp;them&nbsp;references&nbsp;for&nbsp;the&nbsp;normal&nbsp;dCloud&nbsp;demo&nbsp;environment.</p>",
-          "callout_type": "caution",
-          "path": "",
-          "caption": ""
-        },
-        {
           "id": "fcc59eba",
           "type": "text",
           "content": "<!--markdown-->\nThis appendix is an interactive library of **353 AI Canvas prompts**, each one tested repeatedly in the dCloud lab environment. Every prompt shows how it performed in testing, so you can pick the ones most likely to give a strong, consistent answer.\n\n**How to use it**\n\n- **Search** for a product, site, or problem (press `/` to jump to the search box).\n- **Filter** by product area, by consistency, or turn on **✨ Top picks** — prompts that scored 4.5 or higher with High consistency.\n- **Sort** by recommended, highest AI grade, most consistent, or fastest response.\n- Click the **copy** button on any prompt, then paste it into **AI Canvas** or the **AI Assistant**.\n- Prompts with a **follow-up** show the next question to ask in the same canvas.\n- Values highlighted in yellow, such as `<alert-id>`, must be replaced with a value from your environment before you run the prompt.\n- Click **☆** to save a prompt to **My favorites** in this browser.\n- Tried a prompt? Click **👍** or **👎** to tell other students whether it worked for you. Votes from everyone are combined, and **Sort: Students' favorites** puts the best-loved prompts first. Click your vote again to remove it.\n- Found a prompt that works well? Click **➕ Share a prompt**. Shared prompts are reviewed before they appear in the library with a **Community** badge.\n\n<iframe src=\"../apps/prompt-library.html\" title=\"AI Canvas Prompt Library\" style=\"width:100%;height:80vh;min-height:620px;border:1px solid var(--md-default-fg-color--lightest);border-radius:8px;\" allow=\"clipboard-write\" loading=\"eager\"></iframe>\n\n[Open the prompt library in a new tab](../apps/prompt-library.html){ target=_blank }\n",
@@ -3710,7 +3702,7 @@
   "updated_at": "2026-10-26T12:10:37.534293",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-10-26T12:13:26.744075",
+  "last_published": "2026-10-26T12:30:16.126902",
   "nav_dividers_after": [
     "home",
     "5e133176",
