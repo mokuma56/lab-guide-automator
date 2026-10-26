@@ -1482,7 +1482,7 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
 
     # Compute current slugs so we only keep them + reserved dirs
     current_slugs = {slugify(sec.title) for sec in guide.sections}
-    reserved_dirs = {"screenshots", "stylesheets", "overrides", "template_assets", "introduction", "conclusion", "javascripts"}
+    reserved_dirs = {"screenshots", "stylesheets", "overrides", "template_assets", "introduction", "conclusion", "javascripts", "apps"}
     for child in list(docs_dir.iterdir()):
         if child.is_dir() and child.name not in reserved_dirs and child.name not in current_slugs:
             _shutil_clean.rmtree(child)
@@ -1626,6 +1626,23 @@ def _copy_screenshots(guide: LabGuide, docs_dir: Path) -> None:
                 src = ss_src / Path(ss.path).name
                 if src.exists():
                     _shutil.copy2(src, ss_dst / src.name)
+
+    # Embedded apps (e.g. an interactive prompt library) live in data/apps/<guide id>/
+    # and are referenced from guide content as ../apps/<file>
+    _copy_guide_apps(guide, docs_dir)
+
+
+def _copy_guide_apps(guide: LabGuide, docs_dir: Path, apps_root: Path | None = None) -> None:
+    """Copy a guide's standalone app files into docs/apps/ so iframes in its content resolve."""
+    import shutil as _shutil
+    src_dir = (apps_root or Path(__file__).parent.parent / "data" / "apps") / guide.id
+    if not src_dir.is_dir():
+        return
+    dst = docs_dir / "apps"
+    dst.mkdir(exist_ok=True)
+    for f in src_dir.iterdir():
+        if f.is_file():
+            _shutil.copy2(f, dst / f.name)
 
 
 def _write_brand_assets(docs_dir: Path) -> None:

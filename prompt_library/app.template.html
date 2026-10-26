@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Canvas Prompt Library</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fb; --card: #ffffff; --line: #dfe4ec; --text: #1b2330; --muted: #5d6b7e;
+    --accent: #0a60ff; --accent-soft: #e6efff; --code: #f3f5f9; --chip: #eef1f6;
+    --hi: #13814b; --hi-bg: #e3f5ec; --md: #9a6200; --md-bg: #fff3dc; --lo: #b42318; --lo-bg: #fde8e7;
+    --star: #f2a900; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  }
+  :root[data-theme="dark"] {
+    --bg: #1e2129; --panel: #252a35; --card: #2a2f3b; --line: #3a4150; --text: #e7ebf2; --muted: #a2adbe;
+    --accent: #5aa0ff; --accent-soft: #23324d; --code: #1c2029; --chip: #333a48;
+    --hi: #4ccf8b; --hi-bg: #1d3a2c; --md: #f2b84b; --md-bg: #3d3220; --lo: #ff7b72; --lo-bg: #432424;
+    --star: #ffc53d; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  .wrap { padding: 4px 2px 16px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 22px; line-height: 1.1; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .controls { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 10px; border-bottom: 1px solid var(--line); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row + .row { margin-top: 8px; }
+  .search { flex: 1 1 260px; position: relative; }
+  .search input { width: 100%; padding: 9px 12px 9px 34px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--text); font-size: 14px; }
+  .search input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+  .search kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--panel); }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font-size: 13px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--card); color: var(--text); padding: 7px 10px; font-size: 13px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--card); color: var(--text); font-size: 13px; cursor: pointer; user-select: none; }
+  .toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 999px; padding: 4px 10px;
+    font-size: 12px; cursor: pointer; }
+  .chip small { color: var(--muted); margin-left: 4px; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip[aria-pressed="true"] small { color: rgba(255,255,255,.85); }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 7px 11px;
+    font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .result-line { color: var(--muted); font-size: 13px; margin: 12px 0 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 8px; }
+  .card.flash { animation: flash 1.2s ease; }
+  @keyframes flash { 0% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); } 100% { } }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+  .tag { background: var(--chip); border-radius: 6px; padding: 2px 7px; color: var(--muted); }
+  .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .badge { border-radius: 6px; padding: 2px 7px; font-weight: 600; font-size: 11px; letter-spacing: .02em; }
+  .badge.HIGH { color: var(--hi); background: var(--hi-bg); }
+  .badge.MEDIUM { color: var(--md); background: var(--md-bg); }
+  .badge.LOW { color: var(--lo); background: var(--lo-bg); }
+  .badge.top { color: #fff; background: linear-gradient(90deg, #0a60ff, #7b3fe4); }
+  .badge.community { color: #7b3fe4; background: #f0e9ff; }
+  :root[data-theme="dark"] .badge.community { color: #c4a8ff; background: #33295a; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); padding: 18px 20px;
+    width: min(560px, 94vw); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  dialog::backdrop { background: rgba(10, 15, 25, .45); }
+  dialog h2 { margin: 0 0 4px; font-size: 18px; }
+  dialog p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  dialog label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+  dialog label small { font-weight: 400; color: var(--muted); }
+  dialog textarea, dialog input, dialog select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text); font: inherit; }
+  dialog textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .badge.warn { color: var(--lo); background: var(--lo-bg); }
+  .stars { color: var(--star); letter-spacing: 1px; white-space: nowrap; }
+  .stars em { color: var(--muted); font-style: normal; letter-spacing: 0; margin-left: 3px; }
+  .spacer { flex: 1; }
+  .votes { display: inline-flex; gap: 4px; margin-left: auto; }
+  .vote { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--card); color: var(--muted);
+    border-radius: 999px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+  .vote:hover { border-color: var(--accent); color: var(--text); }
+  .vote[aria-pressed="true"].up { background: var(--hi-bg); border-color: var(--hi); color: var(--hi); font-weight: 600; }
+  .vote[aria-pressed="true"].down { background: var(--lo-bg); border-color: var(--lo); color: var(--lo); font-weight: 600; }
+  .rate { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .fav { border: 0; background: none; cursor: pointer; font-size: 17px; color: var(--muted); padding: 0 2px; line-height: 1; }
+  .fav[aria-pressed="true"] { color: var(--star); }
+  .title { font-weight: 650; font-size: 14px; }
+  .prompt { position: relative; background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 44px 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+    white-space: pre-wrap; word-break: break-word; }
+  .prompt mark { background: var(--md-bg); color: var(--md); border-radius: 3px; padding: 0 2px; }
+  .copy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 6px; width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer; }
+  .copy:hover { border-color: var(--accent); color: var(--accent); }
+  .copy.done { background: var(--hi-bg); color: var(--hi); border-color: var(--hi); }
+  .expect { font-size: 12.5px; color: var(--muted); }
+  .expect b { color: var(--text); font-weight: 600; }
+  .hint { font-size: 12px; color: var(--md); }
+  .follow { border-left: 3px solid var(--accent); padding-left: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .follow .when { font-size: 12px; color: var(--muted); }
+  .follow .when b { color: var(--accent); }
+  .empty { text-align: center; padding: 40px 10px; color: var(--muted); }
+  .more { display: flex; justify-content: center; margin-top: 14px; }
+  .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%) translateY(20px); opacity: 0;
+    background: #111827; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; transition: .2s; pointer-events: none; z-index: 20; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 640px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <div class="row">
+      <label class="search">
+        <span class="sr">Search prompts</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search prompts, products, or what you want to find…" autocomplete="off">
+        <kbd>/</kbd>
+      </label>
+      <select id="sort" aria-label="Sort prompts">
+        <option value="best">Sort: Recommended</option>
+        <option value="grade">Sort: Highest AI grade</option>
+        <option value="consistency">Sort: Most consistent</option>
+        <option value="students">Sort: Students' favorites</option>
+        <option value="fast">Sort: Fastest response</option>
+        <option value="id">Sort: Prompt ID</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="toggle" id="t-top" aria-pressed="false">✨ Top picks</button>
+      <span class="seg" role="group" aria-label="Consistency">
+        <button data-c="" aria-pressed="true">Any consistency</button>
+        <button data-c="HIGH" aria-pressed="false">High</button>
+        <button data-c="MEDIUM" aria-pressed="false">Medium</button>
+        <button data-c="LOW" aria-pressed="false">Low</button>
+      </span>
+      <button class="toggle" id="t-fav" aria-pressed="false">★ My favorites</button>
+      <button class="toggle" id="t-bad" aria-pressed="true">Hide known issues</button>
+      <span class="spacer"></span>
+      <button class="btn" id="share" hidden>➕ Share a prompt</button>
+      <button class="btn" id="surprise" title="Show a random top-rated prompt">🎲 Surprise me</button>
+      <button class="btn" id="reset">Reset</button>
+    </div>
+    <div class="row chips" id="cats" role="group" aria-label="Product area"></div>
+  </div>
+
+  <div class="result-line"><span id="count"></span><span id="legend">Grades and consistency come from repeated automated test runs in the dCloud lab.</span></div>
+  <div class="grid" id="grid"></div>
+  <div class="more"><button class="btn" id="more" hidden>Show more</button></div>
+</div>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <form id="share-form" method="dialog">
+    <h2 id="dlg-title">Share a prompt that worked for you</h2>
+    <p>Submitted prompts are reviewed before they appear in the library for other students. Don't include passwords, keys, or customer data.</p>
+    <label for="f-prompt">Prompt <small>(required)</small></label>
+    <textarea id="f-prompt" maxlength="600" required placeholder="The exact text you typed into AI Canvas"></textarea>
+    <label for="f-title">Short title <small>(optional)</small></label>
+    <input id="f-title" maxlength="80" placeholder="e.g. Find sites with degraded Wi-Fi">
+    <label for="f-area">Product area</label>
+    <select id="f-area"></select>
+    <label for="f-expect">What a good answer shows <small>(optional)</small></label>
+    <input id="f-expect" maxlength="200" placeholder="e.g. Lists the APs with the most client failures">
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="f-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="f-send">Submit for review</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const DATA = __DATA__;
+const RATINGS_URL = __RATINGS_URL__;  // Google Apps Script web app; empty disables ratings
+const PAGE = 24;
+const RANK = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('plib:' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('plib:' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+// Follow-up prompts render under their parent instead of as separate cards
+const byId = Object.fromEntries(DATA.map(p => [p.id, p]));
+const kids = {};
+DATA.forEach(p => { if (p.parent && byId[p.parent]) (kids[p.parent] = kids[p.parent] || []).push(p); });
+let roots = DATA.filter(p => !(p.parent && byId[p.parent]));
+const isTop = p => p.grade >= 4.5 && p.consistency === 'HIGH' && !p.problem;
+const score = p => net(p) * 0.4 + (p.grade || 2.5) * 2 + (RANK[p.consistency] || 1.5) * 1.5 - (p.problem ? 10 : 0) - (p.secs ? Math.min(p.secs, 900) / 600 : 0.5);
+
+const state = { q: '', cats: new Set(), cons: '', top: false, fav: false, hideBad: true, sort: 'best', shown: PAGE,
+                favs: new Set(store.get('favs', [])),
+                counts: {}, mine: store.get('votes', {}), ratingsOn: false };
+// A random id per browser: one vote per prompt per browser, changeable at any time
+const VOTER = store.get('voter', null) || (() => { const v = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).toLowerCase(); store.set('voter', v); return v; })();
+
+function fmtSecs(s) { if (!s) return null; const m = Math.floor(s / 60), r = s % 60; return m ? `${m}m ${String(r).padStart(2, '0')}s` : `${r}s`; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function markPlaceholders(s) {
+  // Highlight values the user has to fill in, like <alert-id>, <N>, or "issue X"
+  return esc(s).replace(/&lt;[^&]{1,40}?&gt;/g, m => `<mark title="Replace before running">${m}</mark>`)
+               .replace(/\b(AP|issue|site|device|alert)\s+X\b/g, (m) => `<mark title="Replace before running">${m}</mark>`);
+}
+const hasPlaceholder = s => /<[^>]{1,40}>|\b(AP|issue|site|device|alert)\s+X\b/.test(s);
+function stars(g) {
+  if (!g) return '<span class="stars" title="Not graded yet"><em>not lab-tested</em></span>';
+  const full = Math.round(g);
+  return `<span class="stars" title="Average AI grade ${g} / 5">${'★'.repeat(full)}${'☆'.repeat(5 - full)}<em>${g.toFixed(1)}</em></span>`;
+}
+const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const DONE_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
+
+function promptBox(p) {
+  return `<div class="prompt">${markPlaceholders(p.prompt)}<button class="copy" data-copy="${p.id}" aria-label="Copy prompt ${p.id}" title="Copy prompt">${COPY_ICON}</button></div>`;
+}
+
+function voteButtons(p) {
+  if (!state.ratingsOn) return '';
+  const c = state.counts[p.id] || { up: 0, down: 0 }, mine = state.mine[p.id];
+  return `<span class="votes" title="Did this prompt work well for you?">
+    <button class="vote up" data-vote="up" data-id="${p.id}" aria-pressed="${mine === 'up'}" aria-label="This prompt worked well, ${c.up} votes">👍 ${c.up}</button>
+    <button class="vote down" data-vote="down" data-id="${p.id}" aria-pressed="${mine === 'down'}" aria-label="This prompt didn't work well, ${c.down} votes">👎 ${c.down}</button></span>`;
+}
+function net(p) { const c = state.counts[p.id]; return c ? c.up - c.down : 0; }
+
+function card(p) {
+  const fu = kids[p.id] || [];
+  return `<article class="card" id="card-${p.id}">
+    <div class="meta">
+      <span class="id">${p.id}</span>
+      <span class="tag">${esc(p.domain)}</span>
+      ${p.consistency ? `<span class="badge ${p.consistency}" title="How consistent the answer was across repeated runs">${p.consistency[0] + p.consistency.slice(1).toLowerCase()} consistency</span>` : ''}
+      ${p.community ? '<span class="badge community" title="Shared by a student, not part of the automated lab tests">Community</span>' : ''}
+      ${isTop(p) ? '<span class="badge top">Top pick</span>' : ''}
+      ${p.problem ? '<span class="badge warn" title="Timed out or failed repeatedly in testing">Known issue</span>' : ''}
+      <span class="spacer"></span>
+      <span class="rate">${stars(p.grade)}
+      <button class="fav" data-fav="${p.id}" aria-pressed="${state.favs.has(p.id)}" aria-label="Favorite ${p.id}" title="Save to My favorites">${state.favs.has(p.id) ? '★' : '☆'}</button></span>
+    </div>
+    ${p.title ? `<div class="title">${esc(p.title)}</div>` : ''}
+    ${promptBox(p)}
+    ${hasPlaceholder(p.prompt) ? '<div class="hint">Replace the highlighted value with one from your environment before running.</div>' : ''}
+    ${p.expect ? `<div class="expect"><b>What to look for:</b> ${esc(p.expect)}</div>` : ''}
+    <div class="meta">${p.community ? '' : `<span class="tag">⏱ ${fmtSecs(p.secs) ? 'avg ' + fmtSecs(p.secs) : 'time not recorded'}</span>`}${fu.length ? `<span class="tag">↳ ${fu.length} follow-up${fu.length > 1 ? 's' : ''}</span>` : ''}${voteButtons(p)}</div>
+    ${fu.map(f => `<div class="follow"><div class="when"><b>Follow-up${f.trigger ? ':' : ''}</b> ${esc(f.trigger || 'Ask next in the same canvas')}</div>${promptBox(f)}</div>`).join('')}
+  </article>`;
+}
+
+function matches(p) {
+  if (state.hideBad && p.problem) return false;
+  if (state.top && !isTop(p)) return false;
+  if (state.fav && !state.favs.has(p.id) && !(kids[p.id] || []).some(k => state.favs.has(k.id))) return false;
+  if (state.cons && p.consistency !== state.cons) return false;
+  if (state.cats.size && !state.cats.has(p.category)) return false;
+  if (state.q) {
+    const hay = [p.prompt, p.title, p.domain, p.expect, p.id, ...(kids[p.id] || []).map(k => k.prompt + ' ' + (k.trigger || ''))].join(' ').toLowerCase();
+    if (!state.q.split(/\s+/).every(w => hay.includes(w))) return false;
+  }
+  return true;
+}
+
+const SORTS = {
+  best: (a, b) => score(b) - score(a),
+  grade: (a, b) => (b.grade || 0) - (a.grade || 0) || score(b) - score(a),
+  consistency: (a, b) => (RANK[b.consistency] || 0) - (RANK[a.consistency] || 0) || (b.grade || 0) - (a.grade || 0),
+  fast: (a, b) => (a.secs || 1e9) - (b.secs || 1e9),
+  students: (a, b) => net(b) - net(a) || score(b) - score(a),
+  id: (a, b) => a.id.localeCompare(b.id),
+};
+
+function render() {
+  const list = roots.filter(matches).sort(SORTS[state.sort]);
+  $('#count').textContent = `${list.length} prompt${list.length === 1 ? '' : 's'}` + (list.length > state.shown ? ` · showing ${state.shown}` : '');
+  $('#grid').innerHTML = list.length ? list.slice(0, state.shown).map(card).join('')
+    : '<div class="empty">No prompts match. Try fewer filters, or <button class="btn" id="reset2">reset</button>.</div>';
+  const more = $('#more'); more.hidden = list.length <= state.shown; more.textContent = `Show ${Math.min(PAGE, list.length - state.shown)} more`;
+  const r2 = $('#reset2'); if (r2) r2.onclick = reset;
+  renderCats();
+  fit();
+}
+
+function renderCats() {
+  const counts = {};
+  roots.forEach(p => { if (!(state.hideBad && p.problem)) counts[p.category] = (counts[p.category] || 0) + 1; });
+  const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  $('#cats').innerHTML = `<button class="chip" data-cat="" aria-pressed="${state.cats.size === 0}">All areas</button>` +
+    cats.map(c => `<button class="chip" data-cat="${esc(c)}" aria-pressed="${state.cats.has(c)}">${esc(c)}<small>${counts[c]}</small></button>`).join('');
+}
+
+function renderStats() {
+  const graded = DATA.filter(p => p.grade);
+  const avg = graded.reduce((s, p) => s + p.grade, 0) / graded.length;
+  const high = DATA.filter(p => p.consistency === 'HIGH').length / DATA.filter(p => p.consistency).length;
+  const secs = DATA.filter(p => p.secs).map(p => p.secs).sort((a, b) => a - b);
+  const median = secs[Math.floor(secs.length / 2)];
+  $('#stats').innerHTML = [
+    [DATA.length, 'tested prompts'], [DATA.filter(isTop).length, 'top picks'],
+    [avg.toFixed(1) + ' / 5', 'average AI grade'], [Math.round(high * 100) + '%', 'highly consistent'],
+  ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('') +
+  `<div class="sr">Median response time ${fmtSecs(median)}</div>`;
+}
+
+async function loadRatings() {
+  if (!RATINGS_URL) return;
+  try {
+    const r = await fetch(RATINGS_URL, { cache: 'no-store' });
+    const j = await r.json();
+    state.counts = j.counts || {}; state.ratingsOn = true;
+    const community = (j.community || []).filter(c => c && c.id && c.prompt && !byId[c.id]).map(c => ({
+      id: String(c.id), parent: null, trigger: null, domain: c.area || 'Community', category: 'Community',
+      title: c.title || '', prompt: String(c.prompt), expect: c.expect || '', consistency: null, grade: null,
+      graded: 0, secs: null, runs: 0, problem: false, community: true }));
+    community.forEach(c => { byId[c.id] = c; }); roots = roots.concat(community);
+  } catch (e) { state.ratingsOn = false; }
+  document.querySelector('#sort option[value="students"]').hidden = !state.ratingsOn;
+  $('#share').hidden = !state.ratingsOn;
+  $('#legend').textContent = state.ratingsOn
+    ? 'Stars and consistency come from automated dCloud test runs. 👍 / 👎 are votes from students like you.'
+    : 'Grades and consistency come from repeated automated test runs in the dCloud lab.';
+  render();
+}
+
+async function castVote(id, choice) {
+  const prev = state.mine[id];
+  const next = prev === choice ? 'clear' : choice;          // clicking your current vote removes it
+  const c = state.counts[id] || (state.counts[id] = { up: 0, down: 0 });
+  if (prev) c[prev] = Math.max(0, c[prev] - 1);
+  if (next !== 'clear') c[next] += 1;
+  if (next === 'clear') delete state.mine[id]; else state.mine[id] = next;
+  store.set('votes', state.mine); render();
+  try {
+    const r = await fetch(RATINGS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                         body: JSON.stringify({ action: 'vote', id, voter: VOTER, vote: next }) });
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || 'rejected');
+    toast(next === 'clear' ? 'Vote removed' : 'Thanks — your vote helps other students');
+  } catch (e) {
+    // Roll back so the counts never show a vote that wasn't saved
+    if (next !== 'clear') c[next] = Math.max(0, c[next] - 1);
+    if (prev) { c[prev] += 1; state.mine[id] = prev; } else delete state.mine[id];
+    store.set('votes', state.mine); render(); toast('Could not save your vote — try again');
+  }
+}
+
+function openShare() {
+  const areas = [...new Set(DATA.map(p => p.category))].sort();
+  $('#f-area').innerHTML = '<option value="">Not sure</option>' + areas.map(a => `<option>${esc(a)}</option>`).join('') + '<option>Other</option>';
+  $('#share-form').reset(); $('#dlg').showModal(); $('#f-prompt').focus();
+}
+async function sendShare(e) {
+  e.preventDefault();
+  const prompt = $('#f-prompt').value.trim();
+  if (prompt.length < 10) { $('#f-prompt').focus(); toast('Please enter the full prompt'); return; }
+  const btn = $('#f-send'); btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(RATINGS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'submit', voter: VOTER, prompt, title: $('#f-title').value.trim(),
+                             area: $('#f-area').value, expect: $('#f-expect').value.trim() }) });
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || 'rejected');
+    $('#dlg').close(); toast('Thanks! Your prompt will appear after review');
+  } catch (err) {
+    toast(/limit/.test(err.message) ? 'You have reached the submission limit' : 'Could not send — try again');
+  } finally { btn.disabled = false; btn.textContent = 'Submit for review'; }
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e2) {}
+    ta.remove(); return ok;
+  }
+}
+let toastTimer;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1600); }
+
+function reset() {
+  Object.assign(state, { q: '', cats: new Set(), cons: '', top: false, fav: false, hideBad: true, sort: 'best', shown: PAGE });
+  $('#q').value = ''; $('#sort').value = 'best'; syncToggles(); render();
+}
+function syncToggles() {
+  $('#t-top').setAttribute('aria-pressed', state.top); $('#t-fav').setAttribute('aria-pressed', state.fav); $('#t-bad').setAttribute('aria-pressed', state.hideBad);
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === state.cons));
+}
+
+// The app scrolls inside its own frame so the search and filters stay pinned at the top
+function fit() {}
+
+// Follow the guide's light/dark palette when embedded; otherwise the OS setting
+function applyTheme() {
+  let dark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  try { const s = parent.document.body.getAttribute('data-md-color-scheme'); if (s) dark = s === 'slate'; } catch (e) {}
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+
+document.addEventListener('click', async e => {
+  const c = e.target.closest('[data-copy]');
+  if (c) {
+    const p = byId[c.dataset.copy];
+    if (await copyText(p.prompt)) {
+      c.classList.add('done'); c.innerHTML = DONE_ICON; toast(hasPlaceholder(p.prompt) ? 'Copied — fill in the highlighted value' : 'Copied — paste it into AI Canvas');
+      setTimeout(() => { c.classList.remove('done'); c.innerHTML = COPY_ICON; }, 1400);
+    } else toast('Copy failed — select the text and copy it manually');
+    return;
+  }
+  const v = e.target.closest('[data-vote]');
+  if (v) { castVote(v.dataset.id, v.dataset.vote); return; }
+  const f = e.target.closest('[data-fav]');
+  if (f) {
+    const id = f.dataset.fav; state.favs.has(id) ? state.favs.delete(id) : state.favs.add(id);
+    store.set('favs', [...state.favs]); f.setAttribute('aria-pressed', state.favs.has(id)); f.textContent = state.favs.has(id) ? '★' : '☆';
+    if (state.fav) render();
+    return;
+  }
+  const chip = e.target.closest('[data-cat]');
+  if (chip) {
+    const c2 = chip.dataset.cat;
+    if (!c2) state.cats.clear(); else state.cats.has(c2) ? state.cats.delete(c2) : state.cats.add(c2);
+    state.shown = PAGE; render();
+  }
+});
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => { state.cons = b.dataset.c; state.shown = PAGE; syncToggles(); render(); });
+$('#t-top').onclick = () => { state.top = !state.top; state.shown = PAGE; syncToggles(); render(); };
+$('#t-fav').onclick = () => { state.fav = !state.fav; state.shown = PAGE; syncToggles(); render(); };
+$('#t-bad').onclick = () => { state.hideBad = !state.hideBad; state.shown = PAGE; syncToggles(); render(); };
+$('#sort').onchange = e => { state.sort = e.target.value; render(); };
+let qTimer;
+$('#q').oninput = e => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim().toLowerCase(); state.shown = PAGE; render(); }, 120); };
+$('#more').onclick = () => { state.shown += PAGE; render(); };
+$('#reset').onclick = reset;
+$('#share').onclick = openShare;
+$('#share-form').onsubmit = sendShare;
+$('#f-cancel').onclick = () => $('#dlg').close();
+$('#surprise').onclick = () => {
+  const pool = roots.filter(isTop); const p = pool[Math.floor(Math.random() * pool.length)];
+  Object.assign(state, { q: p.id.toLowerCase(), cats: new Set(), cons: '', top: false, fav: false, shown: PAGE });
+  $('#q').value = p.id; syncToggles(); render();
+  const el = document.getElementById('card-' + p.id); if (el) el.classList.add('flash');
+};
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== $('#q')) { e.preventDefault(); $('#q').focus(); }
+  if (e.key === 'Escape' && document.activeElement === $('#q')) { $('#q').value = ''; state.q = ''; render(); }
+});
+try {
+  new MutationObserver(applyTheme).observe(parent.document.body, { attributes: true, attributeFilter: ['data-md-color-scheme'] });
+} catch (e) {}
+if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+document.querySelector('#sort option[value="students"]').hidden = true;
+applyTheme(); renderStats(); syncToggles(); render(); loadRatings();
+</script>
+</body>
+</html>

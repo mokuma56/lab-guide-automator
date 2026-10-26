@@ -26,3 +26,6 @@ build/
 
 # Generated docs
 Lab_Guide_Automator_User_Guide.docx
+
+# Generated embedded apps (rebuild with prompt_library/build_prompt_library.py)
+**/data/apps/
