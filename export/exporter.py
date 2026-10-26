@@ -1583,6 +1583,8 @@ def export_mkdocs(guide: LabGuide, output_dir: Path) -> Path:
 
     # ── Cisco brand assets ──────────────────────────────────────
     _write_brand_assets(docs_dir)
+    with open(docs_dir / "stylesheets" / "extra.css", "a") as css:
+        css.write(_nav_divider_css(guide))
 
     # ── GitHub Actions workflow ─────────────────────────────────
     workflow_dir = output_dir / ".github" / "workflows"
@@ -1627,6 +1629,22 @@ def _copy_screenshots(guide: LabGuide, docs_dir: Path) -> None:
     # Embedded apps (e.g. an interactive prompt library) live in data/apps/<guide id>/
     # and are referenced from guide content as ../apps/<file>
     _copy_guide_apps(guide, docs_dir)
+
+
+def _nav_divider_css(guide: LabGuide) -> str:
+    """CSS drawing a divider under the top-level nav entries listed in guide.nav_dividers_after.
+
+    Nav order mirrors export_mkdocs: Home, Introduction (if any), each section, Conclusion (if any).
+    """
+    keys = ["home"] + (["introduction"] if guide.introduction else [])
+    keys += [sec.id for sec in guide.sections] + (["conclusion"] if guide.conclusion else [])
+    positions = [keys.index(k) + 1 for k in guide.nav_dividers_after if k in keys]
+    if not positions:
+        return ""
+    selector = ",\n".join(f".md-nav--primary > .md-nav__list > .md-nav__item:nth-child({p})" for p in positions)
+    return (f"\n/* Menu dividers */\n{selector} {{\n"
+            "  border-bottom: 3px solid var(--md-default-fg-color);\n"
+            "  padding-bottom: .3rem;\n  margin-bottom: .3rem;\n}\n")
 
 
 def _copy_guide_apps(guide: LabGuide, docs_dir: Path, apps_root: Path | None = None) -> None:

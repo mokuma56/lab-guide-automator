@@ -96,6 +96,9 @@ class LabGuide(BaseModel):
     github_repo: str = ""      # e.g. https://github.com/ciscodocs/tedcn24-01-fy27.git
     github_branch: str = "main"
     last_published: Optional[str] = None   # ISO timestamp of last successful push
+    # Published-site menu dividers: draw a line below these nav entries.
+    # Entries are "home", "introduction", "conclusion", or a section id.
+    nav_dividers_after: list[str] = []
 
     # ── Persistence helpers ──────────────────────────────────
 
