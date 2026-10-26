@@ -1697,19 +1697,7 @@ def _write_brand_assets(docs_dir: Path) -> None:
 def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") -> str:
     """
     Build/update a git repo in output_dir and push to repo_url.
-
-    Injects the mokuma56 PAT into the HTTPS URL so the push bypasses
-    the macOS keychain (which returns the EMU account instead).
     """
-    import re as _re
-
-    # Inject credentials into HTTPS URL: https://user:token@github.com/...
-    _TOKEN = "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"
-    _USER  = "mokuma56"
-    if repo_url.startswith("https://github.com/"):
-        auth_url = repo_url.replace("https://", f"https://{_USER}:{_TOKEN}@")
-    else:
-        auth_url = repo_url   # SSH or custom — use as-is
 
     def _git(*args, check=True):
         return subprocess.run(
@@ -1735,15 +1723,15 @@ def push_mkdocs_to_git(output_dir: Path, repo_url: str, branch: str = "main") ->
     # ── Init if needed ──────────────────────────────────────────
     if is_fresh:
         _git("init")
-        _git("remote", "add", "origin", auth_url)
+        _git("remote", "add", "origin", repo_url)
         # Fetch so --force-with-lease has ref tracking info
         _git("fetch", "origin", check=False)
     else:
         result = _git("remote", "get-url", "origin", check=False)
         if result.returncode != 0:
-            _git("remote", "add", "origin", auth_url)
+            _git("remote", "add", "origin", repo_url)
         else:
-            _git("remote", "set-url", "origin", auth_url)
+            _git("remote", "set-url", "origin", repo_url)
         # Always fetch so --force-with-lease has current ref tracking info
         _git("fetch", "origin", check=False)
 
