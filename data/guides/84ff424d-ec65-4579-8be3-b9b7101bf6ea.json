@@ -115,7 +115,7 @@
           "id": "514199c7",
           "order": 2,
           "title": "Log into the dCloud Cloud Control Lab",
-          "instruction": "<p>Open&nbsp;a&nbsp;web&nbsp;browser&nbsp;and&nbsp;navigate&nbsp;to&nbsp;the&nbsp;lab&nbsp;landing&nbsp;page&nbsp;at:&nbsp;<a href=\"https://dcloud2-rtp.cisco.com/content/instantdemo/agenticops-with-cisco-cloud-control\" rel=\"noopener noreferrer\" target=\"_blank\">https://dcloud2-rtp.cisco.com/content/instantdemo/agenticops-with-cisco-cloud-control</a>&nbsp;&nbsp;(opens&nbsp;in&nbsp;new&nbsp;window)&nbsp;</p>",
+          "instruction": "<p>Open&nbsp;a&nbsp;web&nbsp;browser&nbsp;and&nbsp;navigate&nbsp;to&nbsp;the&nbsp;lab&nbsp;landing&nbsp;page&nbsp;at:&nbsp;<a href=\"https://dcloud2-rtp.cisco.com/content/instantdemo/agenticops-with-cisco-cloud-control\" rel=\"noopener noreferrer\" target=\"_blank\">https://dcloud2-rtp.cisco.com/content/instantdemo/agenticops-with-cisco-cloud-control</a>&nbsp;&nbsp;Click&nbsp;View&nbsp;&nbsp;+&nbsp;Answer&nbsp;questions&nbsp;are&nbsp;how&nbsp;you&nbsp;plan&nbsp;to&nbsp;use&nbsp;the&nbsp;demo&nbsp;(new&nbsp;window&nbsp;opens)</p>",
           "expected_result": "",
           "notes": "",
           "screenshots": [
@@ -216,6 +216,30 @@
               "type": "callout",
               "content": "<p>You&nbsp;can&nbsp;access&nbsp;<strong><a href=\"../ai-canvas-prompt-library/\" rel=\"noopener noreferrer\" target=\"_blank\">AI&nbsp;Canvas&nbsp;Prompt&nbsp;Library</a></strong>&nbsp;(<strong><em>opens&nbsp;in&nbsp;new&nbsp;Tab&nbsp;for&nbsp;easy&nbsp;navigation</em></strong>)&nbsp;at&nbsp;any&nbsp;time&nbsp;from&nbsp;the&nbsp;navigation&nbsp;menu&nbsp;on&nbsp;the&nbsp;left.&nbsp;Each&nbsp;prompt&nbsp;has&nbsp;a&nbsp;copy&nbsp;button&nbsp;—&nbsp;click&nbsp;it&nbsp;to&nbsp;copy&nbsp;the&nbsp;prompt&nbsp;instantly&nbsp;to&nbsp;your&nbsp;clipboard,&nbsp;then&nbsp;paste&nbsp;it&nbsp;directly&nbsp;into&nbsp;the&nbsp;AI&nbsp;Assistant&nbsp;or&nbsp;Agentic&nbsp;Canvas.</p>",
               "callout_type": "tip",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "dd1573e8",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "e36cab7c",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "bc112430ed.png",
+              "caption": "bc112430ed.png"
+            },
+            {
+              "id": "1cc80c50",
+              "type": "callout",
+              "content": "<p>Since&nbsp;this&nbsp;environment&nbsp;is&nbsp;integrated&nbsp;with&nbsp;both&nbsp;Meraki&nbsp;and&nbsp;Catalyst&nbsp;Center&nbsp;orgs,&nbsp;for&nbsp;prompts&nbsp;related&nbsp;to&nbsp;the&nbsp;network,&nbsp;you&nbsp;will&nbsp;be&nbsp;prompted&nbsp;to&nbsp;select&nbsp;the&nbsp;correct&nbsp;organization.</p>",
+              "callout_type": "note",
               "path": "",
               "caption": ""
             },
@@ -711,7 +735,7 @@
             {
               "id": "c909b82f",
               "type": "text",
-              "content": "<p>Now&nbsp;in&nbsp;the&nbsp;AI&nbsp;Canvas&nbsp;section&nbsp;you&nbsp;will&nbsp;see:</p><p></p><ol><li>The&nbsp;ability&nbsp;to&nbsp;create&nbsp;a&nbsp;<strong>New&nbsp;Canvas</strong></li><li>The&nbsp;<strong>Quick&nbsp;Start</strong>&nbsp;tiles,&nbsp;which&nbsp;allow&nbsp;you&nbsp;to&nbsp;run&nbsp;a&nbsp;set&nbsp;of&nbsp;pre-populated&nbsp;prompts</li><li>The&nbsp;<strong>Recent</strong>&nbsp;list&nbsp;of&nbsp;Canvases</li></ol><p></p><p>Next,&nbsp;<strong>click</strong>&nbsp;the&nbsp;Wireless&nbsp;Quick&nbsp;Start&nbsp;tile&nbsp;and&nbsp;let&#39;s&nbsp;put&nbsp;AI&nbsp;Canvas&nbsp;to&nbsp;work.</p>",
+              "content": "<p>Now&nbsp;in&nbsp;the&nbsp;AI&nbsp;Canvas&nbsp;section&nbsp;you&nbsp;will&nbsp;see:</p><p></p><ol><li>The&nbsp;ability&nbsp;to&nbsp;create&nbsp;a&nbsp;<strong>New&nbsp;Canvas</strong></li><li><strong>Integrations</strong>,&nbsp;which&nbsp;allow&nbsp;you&nbsp;to&nbsp;add&nbsp;API&nbsp;integrations&nbsp;into&nbsp;Cavas</li><li>The&nbsp;<strong>Recent</strong>&nbsp;list&nbsp;of&nbsp;Canvases</li></ol><p></p><p>Next,&nbsp;<strong>click</strong>&nbsp;&nbsp;<strong>+&nbsp;New</strong>&nbsp;&nbsp;and&nbsp;let&#39;s&nbsp;put&nbsp;AI&nbsp;Canvas&nbsp;to&nbsp;work&nbsp;with&nbsp;a&nbsp;new&nbsp;Canvas.</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -729,8 +753,8 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "screenshots/92dec771bf.png",
-              "caption": ""
+              "path": "c58100514a.png",
+              "caption": "c58100514a.png"
             },
             {
               "id": "ab4fc90d",
@@ -762,9 +786,33 @@
           "screenshots": [],
           "blocks": [
             {
+              "id": "cb908f76",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "6818380e",
+              "type": "text",
+              "content": "<p>Next,&nbsp;we&nbsp;will&nbsp;use&nbsp;a&nbsp;built-in&nbsp;Meraki&nbsp;Health&nbsp;&amp;&nbsp;Availability&nbsp;prompt&nbsp;to&nbsp;create&nbsp;a&nbsp;Wireless&nbsp;Health&nbsp;Check.</p><p></p><p>From&nbsp;the&nbsp;&quot;<strong>Where&nbsp;should&nbsp;we&nbsp;begin?</strong>&quot;&nbsp;menu:</p><ol><li>Select&nbsp;<strong>Health&nbsp;&amp;&nbsp;Availability</strong></li><li>Select&nbsp;<strong>Meraki</strong></li><li>Finally,&nbsp;select&nbsp;&quot;<strong>Run&nbsp;a&nbsp;WiFi&nbsp;health&nbsp;check&nbsp;on&nbsp;my&nbsp;Meraki&nbsp;networks</strong>&quot;</li></ol>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "6f6faf84",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "e8db011719.png",
+              "caption": "e8db011719.png"
+            },
+            {
               "id": "2dc75168",
               "type": "text",
-              "content": "<p>Next,&nbsp;watch&nbsp;closely&nbsp;as&nbsp;AI&nbsp;Canvas&nbsp;<strong>generates&nbsp;the&nbsp;Wireless&nbsp;session</strong>,&nbsp;reviewing&nbsp;wireless&nbsp;performance,&nbsp;clients,&nbsp;and&nbsp;alerts&nbsp;in&nbsp;the&nbsp;environment.</p><p></p><p>Once&nbsp;it&nbsp;completes,&nbsp;<strong>spend&nbsp;some&nbsp;time&nbsp;exploring</strong>&nbsp;the&nbsp;various&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;Canvas&nbsp;interface,&nbsp;such&nbsp;as&nbsp;the&nbsp;ability&nbsp;to&nbsp;share&nbsp;and&nbsp;invite&nbsp;others,&nbsp;annotate,&nbsp;resize&nbsp;cards,&nbsp;generate&nbsp;a&nbsp;summary,&nbsp;and&nbsp;more.</p>",
+              "content": "<p>Next,&nbsp;watch&nbsp;closely&nbsp;as&nbsp;AI&nbsp;Canvas&nbsp;<strong>generates&nbsp;the&nbsp;Wireless&nbsp;Health&nbsp;Report</strong>&nbsp;reviewing&nbsp;wireless&nbsp;performance,&nbsp;clients,&nbsp;and&nbsp;alerts&nbsp;in&nbsp;the&nbsp;environment.</p><p></p><p>Once&nbsp;it&nbsp;completes,&nbsp;<strong>spend&nbsp;some&nbsp;time&nbsp;exploring</strong>&nbsp;the&nbsp;various&nbsp;capabilities&nbsp;of&nbsp;the&nbsp;Canvas&nbsp;interface,&nbsp;such&nbsp;as&nbsp;the&nbsp;ability&nbsp;to&nbsp;share&nbsp;and&nbsp;invite&nbsp;others,&nbsp;annotate,&nbsp;resize&nbsp;cards,&nbsp;generate&nbsp;a&nbsp;summary,&nbsp;and&nbsp;more.</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -782,8 +830,8 @@
               "type": "screenshot",
               "content": "",
               "callout_type": "",
-              "path": "screenshots/d48186e8fa.png",
-              "caption": ""
+              "path": "54e6692dfd.png",
+              "caption": "54e6692dfd.png"
             }
           ],
           "code_blocks": [],
@@ -3699,7 +3747,7 @@
   "topology_image": null,
   "recording_path": null,
   "created_at": "2026-07-18T20:28:58.991971",
-  "updated_at": "2026-10-26T12:10:37.534293",
+  "updated_at": "2026-10-27T14:55:25.142287",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
   "last_published": "2026-10-26T12:30:16.126902",
