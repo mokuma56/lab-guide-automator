@@ -1180,7 +1180,7 @@
             {
               "id": "72bef7bc",
               "type": "text",
-              "content": "<p>Next&nbsp;sech&nbsp;for&nbsp;the&nbsp;user&nbsp;<strong>Alex&nbsp;Garcia.&nbsp;</strong>Once&nbsp;found&nbsp;<strong>Click</strong>&nbsp;to&nbsp;explore&nbsp;the&nbsp;user&nbsp;details&nbsp;in&nbsp;a&nbsp;new&nbsp;tab</p>",
+              "content": "<p>Next&nbsp;search&nbsp;for&nbsp;the&nbsp;user&nbsp;<strong>Alex&nbsp;Garcia.&nbsp;</strong>Once&nbsp;found&nbsp;<strong>Click</strong>&nbsp;to&nbsp;explore&nbsp;the&nbsp;user&nbsp;details&nbsp;in&nbsp;a&nbsp;new&nbsp;tab</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -3822,7 +3822,7 @@
   "updated_at": "2026-10-27T16:21:45.381975",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-10-27T15:30:51.315813",
+  "last_published": "2026-10-27T16:23:15.431704",
   "nav_dividers_after": [
     "home",
     "5e133176",
