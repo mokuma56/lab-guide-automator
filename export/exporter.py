@@ -210,9 +210,9 @@ class _QuillToMd(_HTMLParser):
         if not data:
             return
         if self._bold:
-            data = f"**{data}**"
+            data = _wrap_emphasis(data, "**")
         if self._italic:
-            data = f"*{data}*"
+            data = _wrap_emphasis(data, "*")
         if self._link_href:
             data = f"[{data}]({self._link_href})"
         # Route table cell data to buffer, not main parts
@@ -237,6 +237,19 @@ class _QuillToMd(_HTMLParser):
         # Replace non-breaking spaces
         text = text.replace("\xa0", " ").replace("&nbsp;", " ")
         return text.strip()
+
+
+def _wrap_emphasis(text: str, marker: str) -> str:
+    """Wrap text in a Markdown emphasis marker, keeping edge whitespace outside it.
+
+    Markdown ignores "**Alex Garcia. **" (space before the closing marker) and shows the
+    asterisks literally, so "Alex Garcia. " must become "**Alex Garcia.** ".
+    """
+    core = text.strip()
+    if not core:
+        return text
+    start = text.index(core[0])
+    return f"{text[:start]}{marker}{core}{marker}{text[start + len(core):]}"
 
 
 def _html_to_md(html: str) -> str:

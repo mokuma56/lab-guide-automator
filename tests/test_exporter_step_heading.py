@@ -42,3 +42,10 @@ def test_objectives_render_on_introduction_not_home(tmp_path):
     export_mkdocs(guide, tmp_path)
     assert "Build an agent" not in (tmp_path / "docs" / "index.md").read_text()
     assert "Build an agent" in (tmp_path / "docs" / "introduction" / "index.md").read_text()
+
+
+def test_bold_with_trailing_space_still_renders_bold():
+    from export.exporter import _html_to_md
+    md = _html_to_md("<p>Search for <strong>Alex&nbsp;Garcia.&nbsp;</strong>Once found</p>")
+    assert "**Alex Garcia.**" in md or "**Alex Garcia.**" in md
+    assert ". **" not in md
