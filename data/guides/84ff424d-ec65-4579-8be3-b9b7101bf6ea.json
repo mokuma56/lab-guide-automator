@@ -1071,7 +1071,31 @@
             {
               "id": "dfe2bc20",
               "type": "text",
-              "content": "<p>From the Cloud Control top bar, open the <strong>9-Dot Menu</strong> and select <strong>Identity</strong>. The Identity Intelligence <strong>Dashboard</strong> opens by default.</p>",
+              "content": "<p>From&nbsp;the&nbsp;Cloud&nbsp;Control&nbsp;top&nbsp;bar,&nbsp;open&nbsp;the&nbsp;<strong>9-Dot&nbsp;Menu</strong>&nbsp;and&nbsp;select&nbsp;<strong>Identity</strong>.&nbsp;The&nbsp;Identity&nbsp;Intelligence&nbsp;<strong>Dashboard</strong>&nbsp;opens&nbsp;by&nbsp;default.</p><p></p><p>From&nbsp;the&nbsp;drop&nbsp;down&nbsp;<strong>Click&nbsp;</strong>the&nbsp;<strong>Overview&nbsp;Dashboard&nbsp;</strong>(Take&nbsp;note&nbsp;of&nbsp;all&nbsp;the&nbsp;other&nbsp;available&nbsp;dashboards)</p>",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "452686bd",
+              "type": "screenshot",
+              "content": "",
+              "callout_type": "",
+              "path": "8bcc704de3.png",
+              "caption": "8bcc704de3.png"
+            },
+            {
+              "id": "7ea18990",
+              "type": "divider",
+              "content": "",
+              "callout_type": "",
+              "path": "",
+              "caption": ""
+            },
+            {
+              "id": "c6c3d78c",
+              "type": "text",
+              "content": "<p>The Dashboard answers one question: <em>how healthy is the identity posture of this organization right now?</em></p><ul><li><strong>Organization Posture Score</strong> — a single 0–100 score (79, <em>Neutral</em> in this lab) rolled up from every identity check across all connected identity sources.</li><li><strong>Posture score trend</strong> — how the score has moved over the selected window (30 days by default), so you can tell whether remediation work is paying off.</li><li><strong>Top Recommendations</strong> — per-category scores for <strong>Human Identities</strong>, <strong>Non-Human Identities</strong>, and <strong>MFA</strong>, each with the single highest-impact fix, how many identities it affects, and the checks that contribute to it.</li></ul>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -1085,9 +1109,9 @@
               "caption": "Identity Intelligence Dashboard — Organization Posture Score"
             },
             {
-              "id": "c6c3d78c",
-              "type": "text",
-              "content": "<p>The Dashboard answers one question: <em>how healthy is the identity posture of this organization right now?</em></p><ul><li><strong>Organization Posture Score</strong> — a single 0–100 score (79, <em>Neutral</em> in this lab) rolled up from every identity check across all connected identity sources.</li><li><strong>Posture score trend</strong> — how the score has moved over the selected window (30 days by default), so you can tell whether remediation work is paying off.</li><li><strong>Top Recommendations</strong> — per-category scores for <strong>Human Identities</strong>, <strong>Non-Human Identities</strong>, and <strong>MFA</strong>, each with the single highest-impact fix, how many identities it affects, and the checks that contribute to it.</li></ul>",
+              "id": "56d98788",
+              "type": "divider",
+              "content": "",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -3795,10 +3819,10 @@
   "topology_image": null,
   "recording_path": null,
   "created_at": "2026-07-18T20:28:58.991971",
-  "updated_at": "2026-10-27T15:24:21.863113",
+  "updated_at": "2026-10-27T16:21:45.381975",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-10-27T15:06:01.155375",
+  "last_published": "2026-10-27T15:30:51.315813",
   "nav_dividers_after": [
     "home",
     "5e133176",
