@@ -53,7 +53,7 @@ def draw_callouts(im: Image.Image, callouts: list[dict]) -> Image.Image:
     for c in callouts:
         f = _font(round(30 * k))
         text = c.get("text", "Click")
-        tw, th = d.textbbox((0, 0), text, font=f)[2:]
+        tw, th = d.multiline_textbbox((0, 0), text, font=f, align="center")[2:]   # "\n" for two lines
         rx, ry = tw / 2 + 28 * k, th / 2 + 26 * k
         cx, cy = (v * k for v in c["bubble"])
         tx, ty = (v * k for v in c["target"])
@@ -67,7 +67,7 @@ def draw_callouts(im: Image.Image, callouts: list[dict]) -> Image.Image:
         d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=WHITE, outline=RED, width=lw)
         d.arc([cx - rx, cy - ry, cx + rx, cy + ry], start=math.degrees(ang - 0.3),
               end=math.degrees(ang + 0.3), fill=WHITE, width=lw + 2)
-        d.text((cx - tw / 2, cy - th / 2 - 2 * k), text, fill=RED, font=f)
+        d.multiline_text((cx - tw / 2, cy - th / 2 - 2 * k), text, fill=RED, font=f, align="center")
     return im
 
 
