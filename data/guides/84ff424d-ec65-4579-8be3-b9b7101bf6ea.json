@@ -3172,7 +3172,7 @@
             {
               "id": "babeff9a",
               "type": "text",
-              "content": "<p>This is every Cisco IQ assessment for the device, summarized by severity:</p><ul><li><strong>Security Advisories</strong> — known Cisco PSIRT advisories that affect this hardware and software.</li><li><strong>Security Hardening</strong> — configuration that weakens the device's security posture.</li><li><strong>Quantum Readiness</strong> — how prepared the device is for post-quantum cryptography.</li><li><strong>Configuration</strong> — deviations from Cisco configuration best practices.</li><li><strong>Certificates</strong> — expired and soon-to-expire certificates.</li></ul><p>An operator sees all of this without leaving Cloud Control.</p>",
+              "content": "<p>This is every Cisco IQ assessment for the device, summarized by severity:</p><ul><li><strong>Security Advisories</strong> — known Cisco PSIRT advisories that affect this hardware and software.</li><li><strong>Security Hardening</strong> — configuration that weakens the device's security posture.</li><li><strong>Quantum Readiness</strong> — how prepared the device is for post-quantum cryptography.</li><li><strong>Configuration</strong> — deviations from Cisco configuration best practices.</li><li><strong>Certificates</strong> — expired and soon-to-expire certificates.</li></ul><p>An operator sees all of this without leaving Cloud Control.</p><p>When you have finished reviewing the assessments, <strong>right-click</strong> <strong>View in Cisco IQ</strong> at the bottom of the panel and choose <strong>Open Link in New Window</strong>. Cisco IQ opens in its own window, and Cloud Control stays open in this one so you can come back to it later in the lab.</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -3193,7 +3193,7 @@
             {
               "id": "5157ea08",
               "type": "text",
-              "content": "<p>At the bottom of the Assessments tab, click <strong>View in Cisco IQ</strong>.</p>",
+              "content": "<p>Switch to the new window you opened from <strong>View in Cisco IQ</strong>.</p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -3336,7 +3336,7 @@
             {
               "id": "437fc3e1",
               "type": "text",
-              "content": "<p>Return to Cloud Control (use the Cloud Control top bar or your browser's back button — you stay signed in). Click <strong>Home</strong>, open <strong>Canvas</strong>, and start a <strong>New</strong> canvas.</p><p>In the message box, enter:<br><code>What security hardening opportunities are on ISR4431/K9?</code></p>",
+              "content": "<p>Switch back to the Cloud Control window you left open in Step 4 — you are still signed in. Click <strong>Home</strong>, open <strong>Canvas</strong>, and start a <strong>New</strong> canvas.</p><p>In the message box, enter:<br><code>What security hardening opportunities are on ISR4431/K9?</code></p>",
               "callout_type": "",
               "path": "",
               "caption": ""
@@ -3822,7 +3822,7 @@
   "updated_at": "2026-10-27T16:21:45.381975",
   "github_repo": "https://github.com/mokuma56/tedcn24-01-fy27.git",
   "github_branch": "main",
-  "last_published": "2026-10-27T16:23:15.431704",
+  "last_published": "2026-11-03T15:43:16.127216",
   "nav_dividers_after": [
     "home",
     "5e133176",
